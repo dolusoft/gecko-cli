@@ -45,7 +45,8 @@ Kendi komutları:
   attach [--new]          bir Gecko sekmesine bağlanır (tarayıcıda onay)
   detach                  bağlamayı keser
   help [komut]            bağlı sekmenin komutları
-  dev-hub [--port <n>]    geliştirme hub'ını başlatır (yalnız localhost)
+  dev-hub [--port <n>] [--web <köken>] [--auto-approve]
+                          geliştirme hub'ını başlatır (yalnız localhost)
 
 Seçenekler (komut adından önce):
   --json            tek JSON nesnesi, ASCII dışı karakterler \\uXXXX
@@ -191,9 +192,14 @@ async function own(
       const { startDevHub } = await import('../hub/hub.ts')
       const port = Number(ownOption(parsed.args, 'port') ?? 4400)
       const interval = ownOption(parsed.args, 'interval')
+      const web = ownOption(parsed.args, 'web')
       const hub = await startDevHub({
         port,
         autoApprove: ownOption(parsed.args, 'auto-approve') === true,
+        // The origin of frontendx for /cli-pair and /cli-login addresses.
+        ...(typeof web === 'string'
+          ? { webOrigin: web.replace(/\/$/, '') }
+          : {}),
         ...(process.env.GECKO_DEV_HUB_RATE
           ? { ratePerSecond: Number(process.env.GECKO_DEV_HUB_RATE) }
           : {}),

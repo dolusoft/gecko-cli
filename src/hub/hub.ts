@@ -607,7 +607,9 @@ export async function startDevHub(
       // The hub reads `kind` and the request id only (§2).
       const { kind, id } = envelope as Record<string, unknown>
       if (
-        (kind !== 'cli-request' && kind !== 'cancel') ||
+        (kind !== 'cli-request' &&
+          kind !== 'cancel' &&
+          kind !== 'help-request') ||
         typeof id !== 'string'
       ) {
         return refuse('invalid')
@@ -622,7 +624,7 @@ export async function startDevHub(
       if (binding.state === 'suspended' || !binding.browser) {
         return refuse('tab-unreachable', 'the bound tab is not connected')
       }
-      if (kind === 'cli-request') {
+      if (kind === 'cli-request' || kind === 'help-request') {
         const window = (rate.get(conn.grantId!) ?? []).filter(
           t => now() - t < 1000
         )

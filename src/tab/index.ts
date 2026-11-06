@@ -8,10 +8,23 @@ import type { CliReply } from '@dolusoft/command-protocol'
 
 import type { RpcConnection } from '../shared/rpc.ts'
 import { connectRpc } from '../shared/rpc.ts'
-import type { BindingState, GoneReason } from '../shared/wire.ts'
+import type {
+  BindingState,
+  GoneReason,
+  HelpInput,
+  HelpResult
+} from '../shared/wire.ts'
+import { readHelpRequest } from '../shared/wire.ts'
 
 export { HubError } from '../shared/rpc.ts'
-export type { BindingState, GoneReason } from '../shared/wire.ts'
+export type {
+  BindingState,
+  GoneReason,
+  HelpInput,
+  HelpRequest,
+  HelpResult
+} from '../shared/wire.ts'
+export { readHelpRequest } from '../shared/wire.ts'
 
 /** What the hub knows of a binding of this tab. */
 export interface TabBinding {
@@ -45,7 +58,7 @@ export interface TabClient {
   /** Uses the code and binds this page; the user has approved it. */
   pair(code: string): Promise<TabBinding>
   /** `SendToCli`: a reply to the bound CLI, accepted from this page only. */
-  sendToCli(reply: CliReply): Promise<{ delivered: boolean }>
+  sendToCli(reply: CliReply | HelpResult): Promise<{ delivered: boolean }>
   /** "Bağlantıyı kes" in the terminal: the binding is gone, `detached`. */
   detach(): Promise<void>
   /** The page closes or reloads: the binding is gone, `closed`. */
@@ -129,6 +142,58 @@ export async function connectTab(
   }
   await client.hello()
   return client
+}
+
+export interface ServeHelpOptions {
+  /**
+   * The agent `help` tool's `execute` (command-console-core `agentTools`):
+   * it filters by permission and pages.
+   */
+  help: (input: HelpInput) => unknown
+  /** The bound binding's id now; requests of another binding are dropped. */
+  bindingId: () => string | undefined
+  /** Whether the user may use the terminal; `no-terminal-access` if not. */
+  allowed?: () => boolean
+  /** The tab's clock. */
+  now?: () => number
+}
+
+/**
+ * Answers the CLI's `help-request`s (`gecko help`) with the agent `help`
+ * tool's output. Hand every CLI message to it next to `ConsoleGate`; the
+ * console ignores this kind. Returns the unsubscribe.
+ */
+export function serveHelp(
+  tab: Pick<TabClient, 'onCliMessage' | 'sendToCli'>,
+  options: ServeHelpOptions
+): () => void {
+  const now = options.now ?? Date.now
+  return tab.onCliMessage(raw => {
+    const request = readHelpRequest(raw)
+    if (!request) return
+    if (request.origin.bindingId !== options.bindingId()) return
+    // Past `expiresAt` the CLI has given up (§4); nothing to answer.
+    if (now() >= request.expiresAt) return
+    void (async () => {
+      let result: unknown
+      if (options.allowed && !options.allowed()) {
+        result = { status: 'error', code: 'no-terminal-access' }
+      } else {
+        try {
+          result = await options.help(request.input)
+        } catch {
+          result = { status: 'error', code: 'failed' }
+        }
+      }
+      const reply: HelpResult = {
+        v: 1,
+        kind: 'help-result',
+        id: request.id,
+        result
+      }
+      await tab.sendToCli(reply).catch(() => undefined)
+    })()
+  })
 }
 
 /**

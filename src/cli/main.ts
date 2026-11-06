@@ -8,6 +8,7 @@ import type { OwnCommand, Parsed } from './args.ts'
 import { ownOption, parseArgs } from './args.ts'
 import { CliFailure, deviceLogin, resolveEnv, revokeToken } from './auth.ts'
 import { openBrowser } from './browser.ts'
+import { helpInput, requestHelp } from './help.ts'
 import { deleteToken, readToken, writeDefaultEnv } from './config.ts'
 import type { Result } from './output.ts'
 import {
@@ -44,7 +45,7 @@ Kendi komutları:
   logout                  yetkiyi iptal eder, token'ı siler
   attach [--new]          bir Gecko sekmesine bağlanır (tarayıcıda onay)
   detach                  bağlamayı keser
-  help [komut]            bağlı sekmenin komutları
+  help [ad alanı|komut]   bağlı sekmenin komutları (izne göre, sayfalı)
   dev-hub [--port <n>] [--web <köken>] [--auto-approve]
                           geliştirme hub'ını başlatır (yalnız localhost)
 
@@ -55,9 +56,46 @@ Seçenekler (komut adından önce):
   --out <dosya>     sonucu UTF-8 olarak dosyaya yazar
   --line <satır|->  satırın tamamı ya da stdin
 
+Her kendi komutunda --help o komutun kullanımını basar.
+
 Çıkış kodları: 0 tamam · 1 komut hatası · 2 kullanım · 3 izin/onay yok ·
 4 çalışmadı (yeniden denenebilir) · 5 sonuç bilinmiyor · 6 kimlik · 130 Ctrl+C
 `
+
+const ownUsage: Record<OwnCommand, string> = {
+  login: `Kullanım: gecko login [--env <ortam>]
+
+Cihaz girişi: kod basar, tarayıcıda onay sayfasını açar. Onaylanınca
+ortamı varsayılan yapar.
+`,
+  logout: `Kullanım: gecko logout
+
+CLI yetkisini iptal eder ve token'ı siler.
+`,
+  attach: `Kullanım: gecko attach [--new]
+
+Bir Gecko sekmesine bağlanır; tarayıcıda onay ister. Bağlıysa yeni sekme
+açmaz; --new yeni bağlama kurar.
+`,
+  detach: `Kullanım: gecko detach
+
+Bağlamayı keser.
+`,
+  help: `Kullanım: gecko help [ad alanı|komut] [--cursor <n>] [--limit <n>]
+
+Bağlı sekmenin komutları, izninize göre süzülmüş ve sayfalı. Komut adı
+verilirse kullanımı ve girdisi; ad alanı verilirse (tasks) yalnız onun
+komutları. --cursor önceki sayfanın sonunda yazan değerle devam eder.
+`,
+  'dev-hub': `Kullanım: gecko dev-hub [--port <n>] [--web <köken>] [--auto-approve] [--interval <sn>]
+
+Geliştirme hub'ını başlatır, yalnız 127.0.0.1'de dinler.
+  --port <n>        port (varsayılan 4400; 0 boş bir port)
+  --web <köken>     /cli-pair ve /cli-login adreslerinin kökeni (frontendx)
+  --auto-approve    giriş ve bağlamayı onaysız kabul eder (testler)
+  --interval <sn>   cihaz girişinin yoklama aralığı
+`
+}
 
 class SigintInterrupts implements Interrupts {
   private _listeners = new Set<(count: number) => void>()
@@ -106,7 +144,13 @@ async function emit(
   options: Parsed['options']
 ): Promise<number> {
   const code = exitOf(result)
-  const text = options.json ? `${asciiJson(result)}\n` : plainText(result)
+  const columns =
+    options.out === undefined && process.stdout.isTTY
+      ? process.stdout.columns
+      : undefined
+  const text = options.json
+    ? `${asciiJson(result)}\n`
+    : plainText(result, columns ? { columns } : {})
   if (options.out !== undefined) {
     writeFileSync(options.out, text, 'utf8')
   } else {
@@ -291,8 +335,25 @@ async function own(
         await close(session)
       }
     }
-    case 'help':
-      return lineCommand(parsed, 'help', interrupts)
+    case 'help': {
+      const { session, caps } = await sessionWithBinding(
+        parsed,
+        interrupts,
+        true
+      )
+      try {
+        const result = await requestHelp({
+          transport: session.transport,
+          input: helpInput(caps, parsed.args),
+          marginMs: process.env.GECKO_DELIVERY_MARGIN_MS
+            ? Number(process.env.GECKO_DELIVERY_MARGIN_MS)
+            : undefined
+        })
+        return await emit(result, options)
+      } finally {
+        await close(session)
+      }
+    }
   }
 }
 
@@ -346,7 +407,10 @@ export async function main(argv: readonly string[]): Promise<number> {
       return 0
     }
     if (parsed.kind === 'usage') {
-      await write(process.stdout, usage)
+      await write(
+        process.stdout,
+        parsed.command ? ownUsage[parsed.command] : usage
+      )
       return 0
     }
     if (parsed.kind === 'error') {

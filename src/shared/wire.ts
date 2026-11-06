@@ -88,3 +88,81 @@ export function parseFrame(text: string): Frame | undefined {
   }
   return undefined
 }
+
+/** The input of command-console-core's agent `help` tool. */
+export interface HelpInput {
+  command?: string
+  prefix?: string
+  cursor?: string
+  limit?: number
+}
+
+/**
+ * The CLI asks the bound tab for its help (`gecko help [name]`). The tab's
+ * own `help` command is not open to the CLI; the answer is the output of
+ * command-console-core's agent `help` tool, permission filtered and paged.
+ * The hub stamps and routes it as it does a `cli-request`.
+ */
+export interface HelpRequest {
+  v: 1
+  kind: 'help-request'
+  id: string
+  input: HelpInput
+}
+
+/** The tab's answer to a `help-request`, sent with `sendToCli`. */
+export interface HelpResult {
+  v: 1
+  kind: 'help-result'
+  id: string
+  /**
+   * The `help` tool's output: a page `{ namespaces, commands, nextCursor? }`,
+   * one command `{ name, summary, usage, danger, confirm?, input }`, or
+   * `{ status: 'error', code, message? }`.
+   */
+  result: unknown
+}
+
+export function isHelpResult(value: unknown): value is HelpResult {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  return (
+    record.v === 1 &&
+    record.kind === 'help-result' &&
+    typeof record.id === 'string' &&
+    'result' in record
+  )
+}
+
+/** A stamped `help-request` as the tab hears it, or `undefined`. */
+export function readHelpRequest(raw: unknown):
+  | (HelpRequest & {
+      origin: { kind: 'cli'; grantId: string; bindingId: string }
+      stampedAt: number
+      expiresAt: number
+    })
+  | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const record = raw as Record<string, unknown>
+  const origin = record.origin as Record<string, unknown> | undefined
+  if (
+    record.v !== 1 ||
+    record.kind !== 'help-request' ||
+    typeof record.id !== 'string' ||
+    typeof record.expiresAt !== 'number' ||
+    typeof record.stampedAt !== 'number' ||
+    typeof origin !== 'object' ||
+    origin === null ||
+    origin.kind !== 'cli' ||
+    typeof origin.bindingId !== 'string'
+  ) {
+    return undefined
+  }
+  const input =
+    typeof record.input === 'object' &&
+    record.input !== null &&
+    !Array.isArray(record.input)
+      ? (record.input as HelpInput)
+      : {}
+  return { ...record, input } as never
+}

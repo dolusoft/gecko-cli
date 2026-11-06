@@ -30,18 +30,45 @@ describe('parseArgs (§10.1)', () => {
     expect(parseArgs(['--line']).kind).toBe('error')
   })
 
-  it('own commands; help with a command goes to the tab', () => {
+  it('own commands; help keeps its arguments', () => {
     expect(parseArgs(['attach', '--new'])).toMatchObject({
       kind: 'own',
       command: 'attach',
       args: ['--new']
     })
     expect(parseArgs(['help', 'tasks.stop'])).toMatchObject({
-      kind: 'line',
-      line: 'help tasks.stop'
+      kind: 'own',
+      command: 'help',
+      args: ['tasks.stop']
     })
     expect(parseArgs([]).kind).toBe('usage')
     expect(parseArgs(['-h']).kind).toBe('usage')
+  })
+
+  it('--help or -h after an own command is its usage, nothing starts', () => {
+    expect(parseArgs(['dev-hub', '--help'])).toMatchObject({
+      kind: 'usage',
+      command: 'dev-hub'
+    })
+    expect(parseArgs(['dev-hub', '--port', '9', '-h'])).toMatchObject({
+      kind: 'usage',
+      command: 'dev-hub'
+    })
+    expect(parseArgs(['help', '--help'])).toMatchObject({
+      kind: 'usage',
+      command: 'help'
+    })
+  })
+
+  it('a tab command with --help alone is the tab’s help of it', () => {
+    expect(parseArgs(['tasks.list', '--help'])).toMatchObject({
+      kind: 'own',
+      command: 'help',
+      args: ['tasks.list']
+    })
+    expect(parseArgs(['echo', '--text', '--help'])).toMatchObject({
+      kind: 'line'
+    })
   })
 
   it('-- ends the own options', () => {

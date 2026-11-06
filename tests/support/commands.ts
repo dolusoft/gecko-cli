@@ -113,12 +113,6 @@ export function commands(probe: Probe): CommandDefinition[] {
       name: 'cli.secret',
       sensitive: true,
       run: () => ({ summary: 'never' })
-    },
-    {
-      name: 'help',
-      danger: 'read',
-      input: none,
-      run: () => ({ summary: 'search, echo, big, slow, fail, tasks.stop' })
     }
   ]
 }

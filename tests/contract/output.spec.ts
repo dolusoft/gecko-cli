@@ -268,9 +268,50 @@ describe('§10.1 arguments', () => {
 })
 
 describe('§4 help', () => {
-  it('gecko help runs the tab’s help', async () => {
+  it('gecko help is the tab’s agent help: a page of commands', async () => {
     const run = await jsonRun(['help'], config.dir)
     expect(run.code).toBe(0)
-    expect(run.result.summary).toContain('tasks.stop')
+    const data = run.result.data as { commands: { name: string }[] }
+    const names = data.commands.map(command => command.name)
+    expect(names).toContain('tasks.stop')
+    // Sensitive commands are not listed (permission filter of the tab).
+    expect(names).not.toContain('cli.secret')
+  })
+
+  it('gecko help <command> is its usage and input', async () => {
+    const run = await jsonRun(['help', 'tasks.stop'], config.dir)
+    expect(run.code).toBe(0)
+    expect(run.result.data).toMatchObject({
+      name: 'tasks.stop',
+      danger: 'change'
+    })
+  })
+
+  it('gecko help <namespace> keeps one namespace; plain text is a table', async () => {
+    const run = await cli(['help', 'tasks'], { configDir: config.dir }).done
+    expect(run.code).toBe(0)
+    expect(run.stdout).toMatch(/^tasks: 1 komut/)
+    expect(run.stdout).toMatch(/commands:\nname\s+.*danger\n-+/)
+    expect(run.stdout).toMatch(/tasks\.stop\s+change/)
+    expect(run.stdout).not.toContain('{"')
+  })
+
+  it('gecko dev-hub --help prints its usage and starts no hub', async () => {
+    const run = await cli(['dev-hub', '--help'], { configDir: config.dir }).done
+    expect(run.code).toBe(0)
+    expect(run.stdout).toMatch(/^Kullanım: gecko dev-hub/)
+    expect(run.stdout).not.toMatch(/^http:/m)
+  })
+
+  it('gecko <command> --help is the tab’s help of it', async () => {
+    const run = await jsonRun(['tasks.stop', '--help'], config.dir)
+    expect(run.code).toBe(0)
+    expect(run.result.data).toMatchObject({ name: 'tasks.stop' })
+  })
+
+  it('an unknown name is a prefix with no commands', async () => {
+    const run = await jsonRun(['help', 'nope'], config.dir)
+    expect(run.code).toBe(0)
+    expect((run.result.data as { commands: unknown[] }).commands).toEqual([])
   })
 })

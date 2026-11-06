@@ -14,10 +14,10 @@ import type {
   ConsoleOptions,
   CoreConsoleAPI
 } from '@dolusoft/command-console-core'
-import { createConsole } from '@dolusoft/command-console-core'
+import { agentTools, createConsole } from '@dolusoft/command-console-core'
 
 import type { TabClient } from '../../src/tab/index.ts'
-import { connectTab, createTabGate } from '../../src/tab/index.ts'
+import { connectTab, createTabGate, serveHelp } from '../../src/tab/index.ts'
 import { connectDev } from '../../src/transport/dev.ts'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
@@ -283,6 +283,16 @@ export async function fakeTab(options: FakeTabOptions): Promise<FakeTab> {
     ...options.extra
   })
   wire(tab)
+  // `gecko help`: the agent help tool, as the shell serves it.
+  const helpTool = agentTools(console, { context: () => ({}) })[1]
+  const serve = (client: TabClient) =>
+    serveHelp(client, {
+      help: input => helpTool.execute(input),
+      bindingId: () =>
+        self.deaf ? undefined : console.getState().remote?.bindingId,
+      now: () => Date.now() + (options.clockOffsetMs ?? 0)
+    })
+  serve(tab)
   const attach = (binding: {
     bindingId: string
     grantId: string
@@ -346,6 +356,7 @@ export async function fakeTab(options: FakeTabOptions): Promise<FakeTab> {
     async reconnect() {
       tab = await connectTab({ hubUrl: options.hubUrl, token, pageId })
       wire(tab)
+      serve(tab)
       // `connectTab` said hello; a binding back within 60 s is active again.
       if (tab.binding && console.getState().remote === null) {
         attach(tab.binding)

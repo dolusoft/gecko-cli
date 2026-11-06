@@ -1,0 +1,376 @@
+// `gecko`: the remote control of the Gecko web terminal (desktop CLI
+// specification). Its own commands are login, logout, attach, detach, help
+// and dev-hub; every other line goes to the bound tab.
+
+import { readFileSync, writeFileSync } from 'node:fs'
+
+import type { OwnCommand, Parsed } from './args.ts'
+import { ownOption, parseArgs } from './args.ts'
+import { CliFailure, deviceLogin, resolveEnv, revokeToken } from './auth.ts'
+import { openBrowser } from './browser.ts'
+import { deleteToken, readToken, writeDefaultEnv } from './config.ts'
+import type { Result } from './output.ts'
+import {
+  asciiJson,
+  errorResult,
+  escapeControls,
+  exitCodeOf,
+  exitOf,
+  paint,
+  plainText,
+  write
+} from './output.ts'
+import type { Interrupts } from './run.ts'
+import { runLine } from './run.ts'
+import type { Session } from './session.ts'
+import {
+  capabilities,
+  envOf,
+  goneMessage,
+  openSession,
+  pair,
+  toFailure
+} from './session.ts'
+
+const usage = `gecko: Gecko web terminalinin uzaktan kumandası
+
+Kullanım:
+  gecko [seçenekler] <komut satırı>     satır bağlı Gecko sekmesinde çalışır
+  gecko [seçenekler] --line "<satır>"   satırı aynen yollar
+  gecko [seçenekler] --line -           satırı stdin'den okur (ajanlar, PowerShell 5.1)
+
+Kendi komutları:
+  login [--env <ortam>]   cihaz girişi; ortamı sabitler
+  logout                  yetkiyi iptal eder, token'ı siler
+  attach [--new]          bir Gecko sekmesine bağlanır (tarayıcıda onay)
+  detach                  bağlamayı keser
+  help [komut]            bağlı sekmenin komutları
+  dev-hub [--port <n>]    geliştirme hub'ını başlatır (yalnız localhost)
+
+Seçenekler (komut adından önce):
+  --json            tek JSON nesnesi, ASCII dışı karakterler \\uXXXX
+  --env <ortam>     ortam (varsayılan: son login)
+  --view <id>       hedef görünüm
+  --out <dosya>     sonucu UTF-8 olarak dosyaya yazar
+  --line <satır|->  satırın tamamı ya da stdin
+
+Çıkış kodları: 0 tamam · 1 komut hatası · 2 kullanım · 3 izin/onay yok ·
+4 çalışmadı (yeniden denenebilir) · 5 sonuç bilinmiyor · 6 kimlik · 130 Ctrl+C
+`
+
+class SigintInterrupts implements Interrupts {
+  private _listeners = new Set<(count: number) => void>()
+  private _count = 0
+  constructor() {
+    process.on('SIGINT', () => this.fire())
+    // Test hook: Windows cannot deliver SIGINT to a child process; the
+    // contract specs write "x" to stdin instead.
+    if (process.env.GECKO_TEST_INTERRUPT_STDIN === '1') {
+      process.stdin.on('data', data => {
+        for (const char of String(data)) {
+          if (char === 'x') this.fire()
+        }
+      })
+    }
+  }
+  fire() {
+    this._count++
+    if (this._listeners.size === 0) {
+      // Nothing waits on a request: stop now.
+      process.exit(130)
+    }
+    for (const listener of [...this._listeners]) listener(this._count)
+  }
+  onInterrupt(listener: (count: number) => void) {
+    this._listeners.add(listener)
+    return () => this._listeners.delete(listener)
+  }
+  get signal(): AbortSignal {
+    const controller = new AbortController()
+    this.onInterrupt(() => controller.abort())
+    return controller.signal
+  }
+}
+
+const io = {
+  info(text: string) {
+    process.stderr.write(
+      `${paint(process.stderr, 'info', escapeControls(text))}\n`
+    )
+  }
+}
+
+async function emit(
+  result: Result,
+  options: Parsed['options']
+): Promise<number> {
+  const code = exitOf(result)
+  const text = options.json ? `${asciiJson(result)}\n` : plainText(result)
+  if (options.out !== undefined) {
+    writeFileSync(options.out, text, 'utf8')
+  } else {
+    await write(process.stdout, text)
+  }
+  if (!options.json && result.status !== 'ok') {
+    const head = result.code ? `hata (${result.code})` : 'hata'
+    await write(
+      process.stderr,
+      `${paint(process.stderr, 'error', head)}: ${escapeControls(result.message ?? '')}\n`
+    )
+    if (result.suggest) {
+      await write(
+        process.stderr,
+        `Satır: gecko ${escapeControls(result.suggest)}\n`
+      )
+    }
+  }
+  return code
+}
+
+function failureResult(error: unknown): Result {
+  const failure = toFailure(error)
+  return errorResult(failure.code, failure.message)
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk as Buffer)
+  }
+  return Buffer.concat(chunks)
+    .toString('utf8')
+    .replace(/\r?\n$/, '')
+}
+
+async function sessionWithBinding(
+  parsed: Parsed,
+  interrupts: SigintInterrupts,
+  allowPair: boolean
+) {
+  const session = await openSession(parsed.options.env)
+  let binding = session.status.binding
+  if (binding?.state === 'suspended') {
+    throw new CliFailure(
+      'tab-unreachable',
+      'bağlı sekmeye şu an ulaşılamıyor (bağlantısı düştü); 60 sn içinde dönerse bağlama sürer'
+    )
+  }
+  if (!binding || binding.state === 'gone') {
+    if (!allowPair) {
+      throw new CliFailure(
+        binding ? 'gone' : 'no-binding',
+        binding ? goneMessage(binding.reason) : 'bağlama yok: gecko attach'
+      )
+    }
+    if (binding) {
+      io.info(goneMessage(binding.reason).split(';')[0])
+    }
+    binding = await pair(session, io, { open: true, signal: interrupts.signal })
+    io.info('Bağlandı.')
+  }
+  const caps = await capabilities(session, binding, 5000)
+  return { session, binding, caps }
+}
+
+async function own(
+  command: OwnCommand,
+  parsed: Extract<Parsed, { kind: 'own' }>,
+  interrupts: SigintInterrupts
+): Promise<number> {
+  const options = parsed.options
+  const done = (summary: string): Result => ({
+    v: 1,
+    status: 'ok',
+    summary,
+    preview: false,
+    complete: true,
+    untrusted: []
+  })
+  switch (command) {
+    case 'dev-hub': {
+      const { startDevHub } = await import('../hub/hub.ts')
+      const port = Number(ownOption(parsed.args, 'port') ?? 4400)
+      const interval = ownOption(parsed.args, 'interval')
+      const hub = await startDevHub({
+        port,
+        autoApprove: ownOption(parsed.args, 'auto-approve') === true,
+        ...(process.env.GECKO_DEV_HUB_USERS
+          ? { users: JSON.parse(process.env.GECKO_DEV_HUB_USERS) as [] }
+          : {}),
+        timings: {
+          // Tests shorten the windows of §5 and §8 (JSON of DevHubTimings).
+          ...(process.env.GECKO_DEV_HUB_TIMINGS
+            ? (JSON.parse(process.env.GECKO_DEV_HUB_TIMINGS) as object)
+            : {}),
+          ...(interval ? { intervalMs: Number(interval) * 1000 } : {})
+        },
+        log: line => process.stderr.write(`${line}\n`)
+      })
+      // The first stdout line is the address; tests read it.
+      await write(process.stdout, `${hub.url}\n`)
+      io.info(`ortam: gecko login --env ${hub.env}`)
+      await new Promise<void>(resolve => {
+        const stop = () => resolve()
+        process.once('SIGINT', stop)
+        process.once('SIGTERM', stop)
+        process.stdin.on('end', () => {
+          if (process.env.GECKO_DEV_HUB_STDIN === '1') stop()
+        })
+        if (process.env.GECKO_DEV_HUB_STDIN === '1') process.stdin.resume()
+      })
+      await hub.close()
+      return 0
+    }
+    case 'login': {
+      const envOption = ownOption(parsed.args, 'env')
+      const env = typeof envOption === 'string' ? envOption : envOf(options.env)
+      resolveEnv(env)
+      const token = await deviceLogin(
+        env,
+        start => {
+          const opened = openBrowser(start.verificationUriComplete)
+          io.info(
+            opened
+              ? `Kod: ${start.userCode}  ·  tarayıcıda onay sayfası açıldı`
+              : `Kod: ${start.userCode}  ·  şu adresi açın: ${start.verificationUri} (kodu girin)`
+          )
+        },
+        interrupts.signal
+      )
+      writeDefaultEnv(env)
+      return emit(done(`Onaylandı: ${token.user.name} (${env})`), options)
+    }
+    case 'logout': {
+      const env = envOf(options.env)
+      const token = readToken(env)
+      if (token) {
+        await revokeToken(token)
+      }
+      deleteToken(env)
+      return emit(done(`Çıkış yapıldı (${env})`), options)
+    }
+    case 'attach': {
+      const session = await openSession(options.env)
+      try {
+        const current = session.status.binding
+        const fresh = ownOption(parsed.args, 'new') === true
+        if (current?.state === 'active' && !fresh) {
+          await capabilities(session, current, 5000)
+          return emit(
+            done(
+              `Zaten bağlı (sayfa ${current.pageId}). Yeni sekme için: gecko attach --new`
+            ),
+            options
+          )
+        }
+        const binding = await pair(session, io, {
+          open: true,
+          signal: interrupts.signal
+        })
+        await capabilities(session, binding, 5000)
+        return emit(done(`Bağlandı (sayfa ${binding.pageId})`), options)
+      } finally {
+        await close(session)
+      }
+    }
+    case 'detach': {
+      const session = await openSession(options.env)
+      try {
+        await session.transport.detach()
+        return emit(done('Bağlama kesildi'), options)
+      } finally {
+        await close(session)
+      }
+    }
+    case 'help':
+      return lineCommand(parsed, 'help', interrupts)
+  }
+}
+
+async function close(session: Session) {
+  await session.transport.close().catch(() => {})
+}
+
+async function lineCommand(
+  parsed: Parsed,
+  line: string,
+  interrupts: SigintInterrupts
+): Promise<number> {
+  const { session, caps } = await sessionWithBinding(parsed, interrupts, true)
+  try {
+    const result = await runLine({
+      transport: session.transport,
+      capabilities: caps,
+      line,
+      view: parsed.options.view,
+      io,
+      interrupts,
+      marginMs: process.env.GECKO_DELIVERY_MARGIN_MS
+        ? Number(process.env.GECKO_DELIVERY_MARGIN_MS)
+        : undefined,
+      cancelWaitMs: process.env.GECKO_CANCEL_WAIT_MS
+        ? Number(process.env.GECKO_CANCEL_WAIT_MS)
+        : undefined
+    })
+    if (result.view?.title && !parsed.options.json) {
+      io.info(`Görünüm: ${result.view.title}`)
+    }
+    return await emit(result, parsed.options)
+  } finally {
+    await close(session)
+  }
+}
+
+async function version(): Promise<string> {
+  const pkg = JSON.parse(
+    readFileSync(new URL('../../package.json', import.meta.url), 'utf8')
+  ) as { version: string }
+  return pkg.version
+}
+
+export async function main(argv: readonly string[]): Promise<number> {
+  const parsed = parseArgs(argv)
+  const options = parsed.options
+  try {
+    if (options.version) {
+      await write(process.stdout, `${await version()}\n`)
+      return 0
+    }
+    if (parsed.kind === 'usage') {
+      await write(process.stdout, usage)
+      return 0
+    }
+    if (parsed.kind === 'error') {
+      return emit(errorResult('usage', parsed.message), options)
+    }
+    const interrupts = new SigintInterrupts()
+    if (parsed.kind === 'own') {
+      if (parsed.command === 'help' && !hasLogin(options.env)) {
+        // Without a login there is no tab to ask: the CLI's own usage.
+        await write(process.stdout, usage)
+        io.info('Gecko komutları için önce: gecko login --env <ortam>')
+        return 0
+      }
+      return await own(parsed.command, parsed, interrupts)
+    }
+    const line = parsed.line === '-' ? await readStdin() : parsed.line
+    return await lineCommand(parsed, line, interrupts)
+  } catch (error) {
+    const result = failureResult(error)
+    if (exitCodeOf(result.code ?? '') === 130) {
+      return emit(
+        errorResult('cancelled', 'iptal edildi', { status: 'cancelled' }),
+        options
+      )
+    }
+    return emit(result, options)
+  }
+}
+
+function hasLogin(env: string | undefined): boolean {
+  try {
+    return readToken(envOf(env)) !== undefined
+  } catch {
+    return false
+  }
+}

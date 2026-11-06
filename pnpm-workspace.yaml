@@ -1,0 +1,6 @@
+# Until @dolusoft/command-protocol and command-console-core 1.6.0 are
+# published, both resolve to the clone of dolusoft/command-console#22. The
+# range in package.json stays; remove these overrides after the release.
+overrides:
+  '@dolusoft/command-protocol': link:../command-console-cli-remote/packages/command-protocol
+  '@dolusoft/command-console-core': link:../command-console-cli-remote/packages/command-console-core

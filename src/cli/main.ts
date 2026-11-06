@@ -45,7 +45,8 @@ Kendi komutları:
   attach [--new]          bir Gecko sekmesine bağlanır (tarayıcıda onay)
   detach                  bağlamayı keser
   help [komut]            bağlı sekmenin komutları
-  dev-hub [--port <n>]    geliştirme hub'ını başlatır (yalnız localhost)
+  dev-hub [--port <n>] [--web <köken>] [--auto-approve]
+                          geliştirme hub'ını başlatır (yalnız localhost)
 
 Seçenekler (komut adından önce):
   --json            tek JSON nesnesi, ASCII dışı karakterler \\uXXXX
@@ -129,7 +130,9 @@ async function emit(
 
 function failureResult(error: unknown): Result {
   const failure = toFailure(error)
-  return errorResult(failure.code, failure.message)
+  return errorResult(failure.code, failure.message, {
+    ...(failure.reason ? { reason: failure.reason } : {})
+  })
 }
 
 async function readStdin(): Promise<string> {
@@ -155,20 +158,18 @@ async function sessionWithBinding(
       'bağlı sekmeye şu an ulaşılamıyor (bağlantısı düştü); 60 sn içinde dönerse bağlama sürer'
     )
   }
-  if (!binding || binding.state === 'gone') {
+  if (binding?.state === 'gone') {
+    // No new tab on its own (§5.3): the CLI says why and offers attach.
+    throw new CliFailure('gone', goneMessage(binding.reason), binding.reason)
+  }
+  if (!binding) {
     if (!allowPair) {
-      throw new CliFailure(
-        binding ? 'gone' : 'no-binding',
-        binding ? goneMessage(binding.reason) : 'bağlama yok: gecko attach'
-      )
-    }
-    if (binding) {
-      io.info(goneMessage(binding.reason).split(';')[0])
+      throw new CliFailure('no-binding', 'bağlama yok: gecko attach')
     }
     binding = await pair(session, io, { open: true, signal: interrupts.signal })
     io.info('Bağlandı.')
   }
-  const caps = await capabilities(session, binding, 5000)
+  const caps = await capabilities(session, binding, capabilitiesWaitMs())
   return { session, binding, caps }
 }
 
@@ -191,9 +192,17 @@ async function own(
       const { startDevHub } = await import('../hub/hub.ts')
       const port = Number(ownOption(parsed.args, 'port') ?? 4400)
       const interval = ownOption(parsed.args, 'interval')
+      const web = ownOption(parsed.args, 'web')
       const hub = await startDevHub({
         port,
         autoApprove: ownOption(parsed.args, 'auto-approve') === true,
+        // The origin of frontendx for /cli-pair and /cli-login addresses.
+        ...(typeof web === 'string'
+          ? { webOrigin: web.replace(/\/$/, '') }
+          : {}),
+        ...(process.env.GECKO_DEV_HUB_RATE
+          ? { ratePerSecond: Number(process.env.GECKO_DEV_HUB_RATE) }
+          : {}),
         ...(process.env.GECKO_DEV_HUB_USERS
           ? { users: JSON.parse(process.env.GECKO_DEV_HUB_USERS) as [] }
           : {}),
@@ -255,7 +264,7 @@ async function own(
         const current = session.status.binding
         const fresh = ownOption(parsed.args, 'new') === true
         if (current?.state === 'active' && !fresh) {
-          await capabilities(session, current, 5000)
+          await capabilities(session, current, capabilitiesWaitMs())
           return emit(
             done(
               `Zaten bağlı (sayfa ${current.pageId}). Yeni sekme için: gecko attach --new`
@@ -267,7 +276,7 @@ async function own(
           open: true,
           signal: interrupts.signal
         })
-        await capabilities(session, binding, 5000)
+        await capabilities(session, binding, capabilitiesWaitMs())
         return emit(done(`Bağlandı (sayfa ${binding.pageId})`), options)
       } finally {
         await close(session)
@@ -373,4 +382,9 @@ function hasLogin(env: string | undefined): boolean {
   } catch {
     return false
   }
+}
+
+/** How long the tab's capability list is awaited after pairing. */
+function capabilitiesWaitMs(): number {
+  return Number(process.env.GECKO_CAPABILITIES_WAIT_MS ?? 5000)
 }

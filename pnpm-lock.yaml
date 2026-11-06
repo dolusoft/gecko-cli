@@ -162,24 +162,20 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@dolusoft/command-protocol': link:../command-console-cli-remote/packages/command-protocol
-  '@dolusoft/command-console-core': link:../command-console-cli-remote/packages/command-console-core
-
 importers:
 
   .:
     dependencies:
       '@dolusoft/command-protocol':
-        specifier: link:../command-console-cli-remote/packages/command-protocol
-        version: link:../command-console-cli-remote/packages/command-protocol
+        specifier: ^1.6.0
+        version: 1.6.0
       ws:
         specifier: ^8.18.3
         version: 8.22.1
     devDependencies:
       '@dolusoft/command-console-core':
-        specifier: link:../command-console-cli-remote/packages/command-console-core
-        version: link:../command-console-cli-remote/packages/command-console-core
+        specifier: ^1.6.0
+        version: 1.6.0
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.14.0)
@@ -221,6 +217,14 @@ packages:
 
   '@cacheable/utils@2.5.0':
     resolution: {integrity: sha512-buipgOVDkkPXNR5+xBpDw7Zk2n1EvU7qBJCNUcL7rhQ//kfpOXPAvQ511Os0vpLYJ1pZnvudNytkQt2hst3wqA==}
+
+  '@dolusoft/command-console-core@1.6.0':
+    resolution: {integrity: sha512-mZNG8laZB6xTAjetGnmwVzZ8gSGQW84kDXDENNJGZdp4kCX/ubUm4YZuNqap/I3I5a8d7AS76PyUbDkA05lr2Q==}
+    engines: {node: '>=22.18'}
+
+  '@dolusoft/command-protocol@1.6.0':
+    resolution: {integrity: sha512-Rui/rd+InDYD6y4QVXtg/dpYbanlchkgIgr0A/TmcM3ktIKQ6XyKKSjK5ofvWYQKfr+xw52ZSzEZnLpLPusQOg==}
+    engines: {node: '>=22.18'}
 
   '@dual-bundle/import-meta-resolve@4.2.1':
     resolution: {integrity: sha512-id+7YRUgoUX6CgV0DtuhirQWodeeA7Lf4i2x71JS/vtA5pRb/hIGWlw+G6MeXvsM+MXrz0VAydTGElX1rAfgPg==}
@@ -1072,6 +1076,12 @@ snapshots:
     dependencies:
       hashery: 1.5.1
       keyv: 5.6.0
+
+  '@dolusoft/command-console-core@1.6.0':
+    dependencies:
+      '@dolusoft/command-protocol': 1.6.0
+
+  '@dolusoft/command-protocol@1.6.0': {}
 
   '@dual-bundle/import-meta-resolve@4.2.1': {}
 

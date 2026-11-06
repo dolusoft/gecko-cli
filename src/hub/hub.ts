@@ -675,6 +675,11 @@ export async function startDevHub(
     }
     if (entry.userId !== conn.userId) {
       failedAttempt(conn.userId)
+      // The CLI keeps waiting and says another account is signed in (§5.5).
+      const cli = cliByGrant.get(entry.grantId)
+      if (cli) {
+        send(cli, 'pair-refused', { code: 'other-account' })
+      }
       return refuse('other-account', 'the code belongs to another account')
     }
     if (users.get(conn.userId)?.terminal === false) {

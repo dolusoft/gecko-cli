@@ -4,7 +4,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { commands, newProbe } from '../support/commands.ts'
-import type { FakeTab, HubProcess } from '../support/harness.ts'
+import type { HubProcess } from '../support/harness.ts'
 import {
   attach,
   cli,

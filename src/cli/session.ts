@@ -212,14 +212,23 @@ export async function capabilities(
       off()
       resolve(undefined)
     }, waitMs)
-    const off = session.transport.onReply(reply => {
-      const value = readable(reply, binding.bindingId)
+    const settle = (value: CapabilitiesReply | undefined) => {
       if (value) {
         clearTimeout(timer)
         off()
         resolve(value)
       }
-    })
+    }
+    const off = session.transport.onReply(reply =>
+      settle(readable(reply, binding.bindingId))
+    )
+    // The reply may have come with the `paired` event, before this listener:
+    // the hub keeps it, so ask once more after subscribing.
+    session.transport.status().then(
+      status =>
+        settle(readable(status.binding?.capabilities, binding.bindingId)),
+      () => {}
+    )
   })
   if (!received) {
     throw new CliFailure(

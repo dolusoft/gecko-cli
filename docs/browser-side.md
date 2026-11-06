@@ -84,6 +84,51 @@ Hepsini command-console-core 1.6 üretir; kabuk yalnız `RemoteBinding.send` ile
 
 `RemoteBinding.status()` kabuğun bildirdiği görünürlüğü (`document.visibilityState === 'hidden'`) ve verinin yaşını verir; CLI bunu "sekme arka planda, liste 42 sn eski" diye basar.
 
+## `gecko help`: sekmenin yardımı
+
+Kullanıcı terminalde `gecko help`, `gecko help tasks` ya da `gecko help tasks.list` yazar ve bağlı sekmenin komutlarını, kendi iznine göre süzülmüş ve sayfalı olarak görür. Sekmenin kendi `help` komutu CLI'ya açık değildir (`help` satırı yollamak `not-allowed` döner). Bu yüzden CLI satır yerine ayrı bir istek yollar; sekme cevabı command-console-core'un ajan `help` aracından (`agentTools(console, …)[1].execute`) alır.
+
+CLI → hub (`send`), hub bunu `cli-request` gibi damgalar, hız sınırına sayar ve `cli-message` olayıyla sekmeye iletir:
+
+```json
+{
+  "v": 1,
+  "kind": "help-request",
+  "id": "<uuid>",
+  "input": { "prefix": "tasks", "cursor": "30", "limit": 30 },
+  "origin": { "kind": "cli", "grantId": "…", "bindingId": "…" },
+  "stampedAt": 1762480000000,
+  "expiresAt": 1762480030000
+}
+```
+
+`input` ajan `help` aracının girdisidir; alanların hepsi isteğe bağlıdır:
+
+| Alan      | CLI'da                                                               | Anlamı                              |
+| --------- | -------------------------------------------------------------------- | ----------------------------------- |
+| `command` | `gecko help tasks.list` (ad ya da takma ad yetenek listesinde varsa) | o komutun kullanımı ve girdi şeması |
+| `prefix`  | `gecko help tasks` (komut adı değilse)                               | yalnız o ad alanının komutları      |
+| `cursor`  | `--cursor <n>`                                                       | önceki sayfanın `nextCursor` değeri |
+| `limit`   | `--limit <n>`                                                        | sayfa boyu (aracın sınırı geçerli)  |
+
+`gecko <komut> --help` de `gecko help <komut>` ile aynıdır.
+
+Sekme → CLI (`sendToCli`), hub zarfa bakmadan iletir:
+
+```json
+{ "v": 1, "kind": "help-result", "id": "<aynı uuid>", "result": { "namespaces": […], "commands": […], "nextCursor": "30" } }
+```
+
+`result` aracın çıktısıdır, olduğu gibi: sayfa `{ namespaces, commands, nextCursor? }`, tek komut `{ name, summary, usage, danger, confirm?, input }` ya da hata `{ status: "error", code, message? }`. Terminal erişimi yoksa sekme `{ status: "error", code: "no-terminal-access" }` döner (CLI kod 3 ile çıkar).
+
+Sekmenin kuralları:
+
+- `origin.bindingId` sekmenin şu anki bağlamasından farklıysa ya da `expiresAt` geçtiyse cevap verilmez.
+- `help-request` `ConsoleGate`'e verilse de zarar yok: çekirdek yalnız `cli-request` ve `cancel` okur, bu türü yok sayar.
+- Cevap gelmezse CLI damga penceresi (+2 sn) dolunca `not-delivered` (kod 4) ile "Gecko sayfasını yenileyin" der.
+
+`@dolusoft/gecko-cli/tab-client` paketindeki `serveHelp(tab, { help, bindingId, allowed?, now? })` bunu hazır yapar; `readHelpRequest(raw)` yalnız okumayı verir.
+
 ## Bağlamanın hâlleri
 
 | Hâl         | Ne zaman                                                               | CLI'ya etkisi                                                 |

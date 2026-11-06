@@ -138,7 +138,7 @@ export function escapeControls(text: string): string {
 }
 
 /** The plain text of a result for stdout, empty for an error. */
-export function plainText(result: Result): string {
+export function plainText(result: Result, format: FormatOptions = {}): string {
   if (result.status !== 'ok') {
     return ''
   }
@@ -154,7 +154,7 @@ export function plainText(result: Result): string {
     lines.push(escapeControls(result.summary))
   }
   if (result.data !== undefined) {
-    lines.push(formatData(result.data))
+    lines.push(formatData(result.data, format))
   }
   if (!result.complete) {
     lines.push('(sonuç eksik geldi; veri basılmadı)')
@@ -162,7 +162,20 @@ export function plainText(result: Result): string {
   return lines.length > 0 ? `${lines.join('\n')}\n` : ''
 }
 
-function cell(value: unknown): string {
+/** The longest cell of a table, in code points. */
+export const cellMax = 40
+/** The longest value of a `key: value` line, in code points. */
+const valueMax = 120
+/** How many first rows give a table its columns. */
+const columnRows = 20
+
+/** Cuts text to `max` code points, the last one an ellipsis. */
+function cut(text: string, max: number): string {
+  const points = Array.from(text)
+  return points.length <= max ? text : `${points.slice(0, max - 1).join('')}…`
+}
+
+function flat(value: unknown): string {
   if (value === null || value === undefined) {
     return ''
   }
@@ -171,42 +184,95 @@ function cell(value: unknown): string {
   ).replace(/\s+/g, ' ')
 }
 
-/** An array of rows as a table, anything else as indented JSON. */
-export function formatData(data: unknown): string {
-  if (
-    Array.isArray(data) &&
-    data.length > 0 &&
-    data.every(
-      row => typeof row === 'object' && row !== null && !Array.isArray(row)
-    )
-  ) {
-    const columns: string[] = []
-    for (const row of data as Record<string, unknown>[]) {
-      for (const key of Object.keys(row)) {
-        if (!columns.includes(key)) columns.push(key)
+function isRow(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isRows(value: unknown): value is Record<string, unknown>[] {
+  return Array.isArray(value) && value.length > 0 && value.every(isRow)
+}
+
+export interface FormatOptions {
+  /** The terminal's width; the table drops the columns that do not fit. */
+  columns?: number
+}
+
+/**
+ * `data` for a reader (§6): an array of rows, or an object's arrays of rows
+ * (`items`), as tables; other fields as `key: value`. `--json` keeps it all.
+ */
+export function formatData(data: unknown, options: FormatOptions = {}): string {
+  if (isRows(data)) {
+    return table(data, options.columns)
+  }
+  if (Array.isArray(data)) {
+    return data.length === 0
+      ? '(boş)'
+      : data.map(item => `- ${cut(flat(item), valueMax)}`).join('\n')
+  }
+  if (isRow(data)) {
+    const fields: string[] = []
+    const tables: string[] = []
+    for (const [key, value] of Object.entries(data)) {
+      if (isRows(value)) {
+        tables.push(`${escapeControls(key)}:\n${table(value, options.columns)}`)
+      } else if (Array.isArray(value) && value.length === 0) {
+        fields.push(`${escapeControls(key)}: (boş)`)
+      } else {
+        fields.push(`${escapeControls(key)}: ${cut(flat(value), valueMax)}`)
       }
     }
-    const rows = (data as Record<string, unknown>[]).map(row =>
-      columns.map(column => cell(row[column]))
-    )
-    const widths = columns.map((column, i) =>
-      Math.max(width(column), ...rows.map(row => width(row[i])))
-    )
-    const line = (cells: string[]) =>
-      cells
-        .map((text, i) => text + ' '.repeat(widths[i] - width(text)))
-        .join('  ')
-        .trimEnd()
-    return [
-      line(columns.map(escapeControls)),
-      line(widths.map(w => '-'.repeat(w))),
-      ...rows.map(line)
-    ].join('\n')
+    return [...fields, ...tables].join('\n')
   }
   if (typeof data === 'string') {
     return escapeControls(data)
   }
-  return escapeControls(JSON.stringify(data, null, 2))
+  return flat(data)
+}
+
+function table(data: Record<string, unknown>[], columnsMax?: number): string {
+  const columns: string[] = []
+  for (const row of data.slice(0, columnRows)) {
+    for (const key of Object.keys(row)) {
+      if (!columns.includes(key)) columns.push(key)
+    }
+  }
+  const heads = columns.map(column => cut(escapeControls(column), cellMax))
+  const rows = data.map(row =>
+    columns.map(column => cut(flat(row[column]), cellMax))
+  )
+  const widths = columns.map((_, i) =>
+    Math.max(width(heads[i]), ...rows.map(row => width(row[i])))
+  )
+  // Keep the first columns that fit the terminal; the rest is in --json.
+  let shown = columns.length
+  if (columnsMax !== undefined && columnsMax > 0) {
+    let used = 0
+    shown = 0
+    for (const w of widths) {
+      const next = used + (shown > 0 ? 2 : 0) + w
+      if (next > columnsMax && shown > 0) break
+      used = next
+      shown++
+    }
+  }
+  const line = (cells: string[]) =>
+    cells
+      .slice(0, shown)
+      .map((text, i) => text + ' '.repeat(widths[i] - width(text)))
+      .join('  ')
+      .trimEnd()
+  const lines = [
+    line(heads),
+    line(widths.map(w => '-'.repeat(w))),
+    ...rows.map(line)
+  ]
+  if (shown < columns.length) {
+    lines.push(
+      `(+${columns.length - shown} sütun sığmadı: ${columns.slice(shown).join(', ')}; tamamı için --json)`
+    )
+  }
+  return lines.join('\n')
 }
 
 function width(text: string): number {

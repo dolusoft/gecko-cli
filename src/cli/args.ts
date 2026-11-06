@@ -34,7 +34,12 @@ export type Parsed =
       args: string[]
     }
   | { kind: 'line'; options: GlobalOptions; line: string | '-' }
-  | { kind: 'usage'; options: GlobalOptions }
+  | {
+      kind: 'usage'
+      options: GlobalOptions
+      /** The own command whose usage is asked; none is the CLI's. */
+      command?: OwnCommand
+    }
   | { kind: 'error'; options: GlobalOptions; message: string }
 
 const valued = new Set(['--env', '--view', '--out', '--line'])
@@ -104,13 +109,21 @@ export function parseArgs(argv: readonly string[]): Parsed {
   }
   const [name, ...args] = rest
   if ((ownCommands as readonly string[]).includes(name)) {
-    // `gecko help <command>` is the tab's help of that command.
-    if (name === 'help' && args.length > 0) {
-      return { kind: 'line', options, line: toLine(rest) }
+    // `gecko <own> --help` prints that command's usage, starts nothing.
+    if (args.some(isHelpFlag)) {
+      return { kind: 'usage', options, command: name as OwnCommand }
     }
     return { kind: 'own', command: name as OwnCommand, options, args }
   }
+  // `gecko <command> --help` alone is the tab's help of that command.
+  if (args.length === 1 && isHelpFlag(args[0])) {
+    return { kind: 'own', command: 'help', options, args: [name] }
+  }
   return { kind: 'line', options, line: toLine(rest) }
+}
+
+function isHelpFlag(token: string): boolean {
+  return token === '--help' || token === '-h'
 }
 
 /** The tokens as one line the tab's tokenizer reads back unchanged. */

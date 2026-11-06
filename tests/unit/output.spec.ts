@@ -80,6 +80,33 @@ describe('§6.1 JSON and text', () => {
     )
   })
 
+  it('an object with an items array prints its fields and a table', () => {
+    expect(
+      formatData({ total: 2, items: [{ id: 1, n: 'x' }, { id: 2 }] })
+    ).toBe('total: 2\nitems:\nid  n\n--  -\n1   x\n2')
+  })
+
+  it('an object without rows prints key: value, never raw JSON', () => {
+    expect(formatData({ ok: true, who: { id: 'u1' }, list: [] })).toBe(
+      'ok: true\nwho: {"id":"u1"}\nlist: (boş)'
+    )
+  })
+
+  it('a cell is cut at 40 code points', () => {
+    const text = formatData([{ a: 'ğ'.repeat(50) }])
+    const row = text.split('\n')[2]
+    expect(Array.from(row)).toHaveLength(40)
+    expect(row.endsWith('…')).toBe(true)
+  })
+
+  it('columns that do not fit the terminal are dropped and named', () => {
+    const text = formatData([{ a: 'x'.repeat(10), b: 'y'.repeat(10) }], {
+      columns: 15
+    })
+    expect(text.split('\n')[0]).toBe('a')
+    expect(text).toContain('+1 sütun sığmadı: b')
+  })
+
   it('a preview names the line to confirm', () => {
     expect(
       plainText({

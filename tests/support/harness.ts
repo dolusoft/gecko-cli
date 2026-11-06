@@ -4,7 +4,7 @@
 
 import type { ChildProcess } from 'node:child_process'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,6 +18,7 @@ import { createConsole } from '@dolusoft/command-console-core'
 
 import type { TabClient } from '../../src/tab/index.ts'
 import { connectTab, createTabGate } from '../../src/tab/index.ts'
+import { connectDev } from '../../src/transport/dev.ts'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const bin = join(root, 'bin', 'gecko.js')
@@ -39,7 +40,12 @@ export function startHub(
     process.execPath,
     [bin, 'dev-hub', '--port', '0', ...args],
     {
-      env: { ...process.env, GECKO_DEV_HUB_STDIN: '1', ...extraEnv },
+      env: {
+        ...process.env,
+        GECKO_DEV_HUB_STDIN: '1',
+        GECKO_DEV_HUB_RATE: '1000',
+        ...extraEnv
+      },
       stdio: ['pipe', 'pipe', 'pipe']
     }
   )
@@ -148,6 +154,14 @@ export function cli(
           () => reject(new Error(`no ${pattern} on stderr: ${err}`)),
           timeoutMs
         )
+        void done.then(run => {
+          clearTimeout(timer)
+          reject(
+            new Error(
+              `exited ${run.code} before ${pattern}: ${run.stdout} ${run.stderr}`
+            )
+          )
+        })
         waiters.push({
           pattern,
           resolve: m => {
@@ -202,6 +216,12 @@ export interface FakeTab {
   pageId: string
   /** Uses the code and attaches the console, as the pairing page does. */
   pair(code: string): Promise<void>
+  /** Binds without attaching the console: a page that predates the CLI. */
+  pairOnly(code: string): Promise<void>
+  /** Hears CLI messages but does not hand them to the console. */
+  deaf: boolean
+  /** Every CLI message the hub routed to this tab. */
+  heard: unknown[]
   /** Waits for a plan and approves it after its first second. */
   approveNext(): Promise<void>
   rejectNext(): Promise<void>
@@ -232,10 +252,14 @@ export async function fakeTab(options: FakeTabOptions): Promise<FakeTab> {
   const token = `dev:${options.user ?? 'u1'}`
   let tab = await connectTab({ hubUrl: options.hubUrl, token, pageId })
   const busyAttempts: unknown[] = []
+  const heard: unknown[] = []
+  const self = { deaf: false }
   // The gate follows the current connection, as the shell's hub client does.
   const listeners = new Set<(raw: unknown) => void>()
   const wire = (client: TabClient) => {
     client.onCliMessage(raw => {
+      heard.push(raw)
+      if (self.deaf) return
       for (const listener of [...listeners]) listener(raw)
     })
     client.onCliBusy(event => busyAttempts.push(event))
@@ -284,12 +308,22 @@ export async function fakeTab(options: FakeTabOptions): Promise<FakeTab> {
     get tab() {
       return tab
     },
+    get deaf() {
+      return self.deaf
+    },
+    set deaf(value: boolean) {
+      self.deaf = value
+    },
     console,
     pageId,
     busyAttempts,
+    heard,
     async pair(code) {
       const binding = await tab.pair(code)
       attach(binding)
+    },
+    async pairOnly(code) {
+      await tab.pair(code)
     },
     async approveNext() {
       const plan = await waitPlan()
@@ -335,3 +369,42 @@ export async function attach(
   void hub
   return result
 }
+
+/** `gecko --json <args>`: the exit code and the parsed object. */
+export async function jsonRun(
+  args: string[],
+  configDir: string,
+  env: Record<string, string> = {}
+) {
+  const run = await cli(['--json', ...args], { configDir, env }).done
+  let result: Record<string, unknown>
+  try {
+    result = JSON.parse(run.stdout) as Record<string, unknown>
+  } catch {
+    throw new Error(`not JSON (exit ${run.code}): ${run.stdout} ${run.stderr}`)
+  }
+  return { ...run, result }
+}
+
+/** The stored token of a config directory. */
+export function storedToken(configDir: string, env: string) {
+  const file = join(
+    configDir,
+    `token-${env.replace(/[^A-Za-z0-9.-]/g, '_')}.json`
+  )
+  return JSON.parse(readFileSync(file, 'utf8')) as {
+    accessToken: string
+    refreshToken: string
+    grantId: string
+  }
+}
+
+/** A raw CLI connection with the stored token, for the hub-level checks. */
+export function rawCli(hub: HubProcess, configDir: string) {
+  return connectDev({
+    host: hub.env,
+    token: storedToken(configDir, hub.env).accessToken
+  })
+}
+
+export const pause = (ms: number) => new Promise(r => setTimeout(r, ms))

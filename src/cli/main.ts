@@ -168,7 +168,7 @@ async function sessionWithBinding(
     binding = await pair(session, io, { open: true, signal: interrupts.signal })
     io.info('Bağlandı.')
   }
-  const caps = await capabilities(session, binding, 5000)
+  const caps = await capabilities(session, binding, capabilitiesWaitMs())
   return { session, binding, caps }
 }
 
@@ -194,6 +194,9 @@ async function own(
       const hub = await startDevHub({
         port,
         autoApprove: ownOption(parsed.args, 'auto-approve') === true,
+        ...(process.env.GECKO_DEV_HUB_RATE
+          ? { ratePerSecond: Number(process.env.GECKO_DEV_HUB_RATE) }
+          : {}),
         ...(process.env.GECKO_DEV_HUB_USERS
           ? { users: JSON.parse(process.env.GECKO_DEV_HUB_USERS) as [] }
           : {}),
@@ -255,7 +258,7 @@ async function own(
         const current = session.status.binding
         const fresh = ownOption(parsed.args, 'new') === true
         if (current?.state === 'active' && !fresh) {
-          await capabilities(session, current, 5000)
+          await capabilities(session, current, capabilitiesWaitMs())
           return emit(
             done(
               `Zaten bağlı (sayfa ${current.pageId}). Yeni sekme için: gecko attach --new`
@@ -267,7 +270,7 @@ async function own(
           open: true,
           signal: interrupts.signal
         })
-        await capabilities(session, binding, 5000)
+        await capabilities(session, binding, capabilitiesWaitMs())
         return emit(done(`Bağlandı (sayfa ${binding.pageId})`), options)
       } finally {
         await close(session)
@@ -373,4 +376,9 @@ function hasLogin(env: string | undefined): boolean {
   } catch {
     return false
   }
+}
+
+/** How long the tab's capability list is awaited after pairing. */
+function capabilitiesWaitMs(): number {
+  return Number(process.env.GECKO_CAPABILITIES_WAIT_MS ?? 5000)
 }

@@ -122,7 +122,14 @@ export async function pair(
     }
     cleanups.push(
       transport.onPaired(binding => done(() => resolve(binding))),
-      transport.onPairRefused(refusal =>
+      transport.onPairRefused(refusal => {
+        if (refusal === 'other-account') {
+          // The code stays valid; the user can switch accounts (§5.5).
+          io.info(
+            'tarayıcıda başka hesap açık; kodu bu CLI hesabıyla açılmış sekmede onaylayın'
+          )
+          return
+        }
         done(() =>
           reject(
             new CliFailure(
@@ -133,7 +140,7 @@ export async function pair(
             )
           )
         )
-      )
+      })
     )
     const timer = setTimeout(
       () =>

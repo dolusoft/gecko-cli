@@ -352,7 +352,14 @@ export async function runLine(options: RunOptions): Promise<Result> {
             return end(errorResult('no-binding', 'bağlama yok: gecko attach'))
           }
           if (error.code === 'busy') {
-            return end(errorResult('busy', error.message))
+            return end(
+              errorResult(
+                'busy',
+                error.message.includes('rate')
+                  ? 'hız sınırı: yetki başına saniyede en çok 5 istek; biraz sonra yeniden deneyin'
+                  : 'terminal meşgul; yeniden deneyin'
+              )
+            )
           }
           if (error.code === 'connection-lost') {
             return lost('hub bağlantısı koptu')

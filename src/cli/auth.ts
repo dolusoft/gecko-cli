@@ -6,10 +6,12 @@ import { readToken, writeToken } from './config.ts'
 
 export class CliFailure extends Error {
   readonly code: string
-  constructor(code: string, message: string) {
+  readonly reason?: string
+  constructor(code: string, message: string, reason?: string) {
     super(message)
     this.name = 'CliFailure'
     this.code = code
+    if (reason !== undefined) this.reason = reason
   }
 }
 

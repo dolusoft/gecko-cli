@@ -292,7 +292,11 @@ export async function fakeTab(options: FakeTabOptions): Promise<FakeTab> {
       ...binding,
       send: reply => {
         if (options.dropReplies?.(reply)) return
-        return tab.sendToCli(reply).then(() => undefined)
+        // A reply after a drop has no connection to go on: lost, as in a tab.
+        return tab.sendToCli(reply).then(
+          () => undefined,
+          () => undefined
+        )
       },
       ...(options.status ? { status: options.status } : {})
     })

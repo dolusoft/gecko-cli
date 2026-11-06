@@ -129,7 +129,9 @@ async function emit(
 
 function failureResult(error: unknown): Result {
   const failure = toFailure(error)
-  return errorResult(failure.code, failure.message)
+  return errorResult(failure.code, failure.message, {
+    ...(failure.reason ? { reason: failure.reason } : {})
+  })
 }
 
 async function readStdin(): Promise<string> {
@@ -155,15 +157,13 @@ async function sessionWithBinding(
       'bağlı sekmeye şu an ulaşılamıyor (bağlantısı düştü); 60 sn içinde dönerse bağlama sürer'
     )
   }
-  if (!binding || binding.state === 'gone') {
+  if (binding?.state === 'gone') {
+    // No new tab on its own (§5.3): the CLI says why and offers attach.
+    throw new CliFailure('gone', goneMessage(binding.reason), binding.reason)
+  }
+  if (!binding) {
     if (!allowPair) {
-      throw new CliFailure(
-        binding ? 'gone' : 'no-binding',
-        binding ? goneMessage(binding.reason) : 'bağlama yok: gecko attach'
-      )
-    }
-    if (binding) {
-      io.info(goneMessage(binding.reason).split(';')[0])
+      throw new CliFailure('no-binding', 'bağlama yok: gecko attach')
     }
     binding = await pair(session, io, { open: true, signal: interrupts.signal })
     io.info('Bağlandı.')

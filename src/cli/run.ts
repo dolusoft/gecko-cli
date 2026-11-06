@@ -14,6 +14,7 @@ import type {
 import { isCliReply, joinChunks, tokenize } from '@dolusoft/command-protocol'
 
 import { HubError } from '../shared/rpc.ts'
+import { closeCodes } from '../shared/wire.ts'
 import type { Transport } from '../transport/transport.ts'
 import type { Result } from './output.ts'
 import { errorResult, markUntrusted } from './output.ts'
@@ -287,7 +288,9 @@ export async function runLine(options: RunOptions): Promise<Result> {
         }
       }),
       transport.onBinding(binding => {
-        if (binding.state === 'gone') {
+        if (binding.state === 'gone' && binding.reason === 'revoked') {
+          end(revokedResult())
+        } else if (binding.state === 'gone') {
           lost(goneMessage(binding.reason))
         } else if (binding.state === 'suspended') {
           lost('bağlı sekmenin bağlantısı düştü')
@@ -308,7 +311,13 @@ export async function runLine(options: RunOptions): Promise<Result> {
         )
       })
     )
-    transport.onClose(() => lost('hub bağlantısı koptu'))
+    transport.onClose(info => {
+      if (info.code === closeCodes.revoked) {
+        // The grant was revoked (§8): an identity error, whatever ran.
+        return end(revokedResult())
+      }
+      lost('hub bağlantısı koptu')
+    })
 
     transport.send(envelope).then(
       receipt => {
@@ -377,4 +386,12 @@ function strip<T extends Record<string, unknown>>(value: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(value).filter(([, v]) => v !== undefined)
   ) as Partial<T>
+}
+
+/** The grant was revoked (§8): an identity error, whatever was running. */
+function revokedResult(): Result {
+  return errorResult(
+    'revoked',
+    'CLI yetkisi iptal edildi; başlamış bir iş sürüyor olabilir. Yeniden: gecko login'
+  )
 }

@@ -276,7 +276,10 @@ async function sessionWithBinding(
   return { session, binding, caps }
 }
 
-/** "Bağlandı: "Ağ Trafiği" · /path" from `nav.where`; the page id without it. */
+/**
+ * `"Ağ Trafiği" · /path` from `nav.where`. Nothing on the pairing page: the
+ * tab leaves it right after pairing, so its title would already be stale.
+ */
 async function tabName(
   session: Session,
   caps: CapabilitiesReply,
@@ -285,10 +288,16 @@ async function tabName(
   const where = await whereIs(session, caps, interrupts)
   if (where === undefined || where === 'no-answer') return undefined
   if (!where.title && !where.path) return undefined
+  if (where.path && isPairingPath(where.path)) return undefined
   return [where.title ? `"${where.title}"` : '', where.path ?? '']
     .filter(Boolean)
     .join(' · ')
 }
+
+const isPairingPath = (path: string) => /^\/cli-pair(?:[/?#]|$)/.test(path)
+
+/** Data View commands are the ones a view line means something for. */
+const isDataViewLine = (line: string) => /^\s*dataview\./i.test(line)
 
 async function own(
   command: OwnCommand,
@@ -404,10 +413,7 @@ async function own(
         const caps = await capabilities(session, binding, capabilitiesWaitMs())
         // The tab's title and path say more than its page id (UX U9, §1).
         const name = await tabName(session, caps, interrupts)
-        return emit(
-          done(`Bağlandı: ${name ?? `sayfa ${binding.pageId}`}`),
-          options
-        )
+        return emit(done(name ? `Bağlandı: ${name}` : 'Bağlandı'), options)
       } finally {
         await close(session)
       }
@@ -488,7 +494,12 @@ async function lineCommand(
     if (result.code === 'invalid-args') {
       result = await withUsageHint(session, caps, line, result)
     }
-    if (result.view?.title && !parsed.options.json) {
+    // Only where a view matters: Data View commands or an explicit --view.
+    if (
+      result.view?.title &&
+      !parsed.options.json &&
+      (parsed.options.view !== undefined || isDataViewLine(line))
+    ) {
       io.info(`Görünüm: ${result.view.title}`)
     }
     return await emit(result, parsed.options, { line })

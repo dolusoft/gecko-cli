@@ -239,6 +239,60 @@ describe('U9 robustness', () => {
     expect(again.stdout).toContain('Zaten bağlı: "Ağ Trafiği"')
   })
 
+  it('attach on the pairing page says only "Bağlandı"', async () => {
+    const dir = await loggedIn()
+    const onPairPage = commands(newProbe()).map(command =>
+      command.name === 'nav.where'
+        ? {
+            ...command,
+            run: () => ({
+              summary: '/cli-pair',
+              data: { path: '/cli-pair', title: 'Connect the desktop CLI' }
+            })
+          }
+        : command
+    )
+    const tab = await fakeTab({ hubUrl: hub.url, commands: onPairPage })
+    cleanups.push(() => tab.close())
+    const done = await attach(hub, dir, tab)
+    expect(done.stdout).toContain('Bağlandı')
+    expect(done.stdout).not.toContain('Connect the desktop CLI')
+    expect(done.stdout).not.toContain('/cli-pair')
+  })
+
+  it('the view line: only for dataview.* or an explicit --view', async () => {
+    const dir = await loggedIn()
+    const tab = await fakeTab({
+      hubUrl: hub.url,
+      commands: [
+        ...commands(newProbe()),
+        {
+          name: 'dataview.rows',
+          danger: 'read',
+          input: { type: 'object', properties: {} },
+          run: () => ({ summary: '2 satır' })
+        }
+      ],
+      extra: { activeView: () => 'v-1' },
+      viewTitle: () => 'Tab Log View'
+    })
+    cleanups.push(() => tab.close())
+    await attach(hub, dir, tab)
+    const other = await cli(['nav.where'], { configDir: dir, env: fast }).done
+    expect(other.code).toBe(0)
+    expect(other.stderr).not.toContain('Görünüm:')
+    const rows = await cli(['dataview.rows'], { configDir: dir, env: fast })
+      .done
+    expect(rows.stderr).toContain('Görünüm: Tab Log View')
+    const explicit = await cli(['--view', 'v-1', 'nav.where'], {
+      configDir: dir,
+      env: fast
+    }).done
+    expect(explicit.stderr).toContain('Görünüm: Tab Log View')
+    const json = await run(['nav.where'], dir)
+    expect(json.result.view).toMatchObject({ id: 'v-1', title: 'Tab Log View' })
+  })
+
   it('detach without a binding says there was none, code 0', async () => {
     const dir = await loggedIn()
     const done = await cli(['detach'], { configDir: dir }).done

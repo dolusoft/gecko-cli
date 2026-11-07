@@ -659,10 +659,14 @@ export async function startDevHub(
         bucket.at = t
         rate.set(conn.grantId!, bucket)
         if (bucket.tokens < 1) {
-          return refuse(
-            'busy',
-            `rate limit: ${ratePerSecond} requests a second on average`
-          )
+          // Not `busy` (one live call): the CLI waits this long and retries.
+          throw new Refusal({
+            code: 'rate-limited',
+            message: `rate limit: ${ratePerSecond} requests a second on average`,
+            retryAfterMs: Math.ceil(
+              ((1 - bucket.tokens) / ratePerSecond) * 1000
+            )
+          })
         }
         bucket.tokens -= 1
       }

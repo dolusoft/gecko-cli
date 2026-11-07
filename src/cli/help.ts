@@ -14,6 +14,7 @@ import type { Transport } from '../transport/transport.ts'
 import { ownOption } from './args.ts'
 import type { Result } from './output.ts'
 import { errorResult, markUntrusted } from './output.ts'
+import { sendRetrying } from './retry.ts'
 import { commandOf } from './run.ts'
 import { goneMessage } from './session.ts'
 
@@ -129,7 +130,11 @@ export function requestHelp(options: HelpOptions): Promise<Result> {
         )
       )
     )
-    transport.send({ v: 1, kind: 'help-request', id, input }).then(
+    sendRetrying(
+      transport,
+      { v: 1, kind: 'help-request', id, input },
+      { stopped: () => ended }
+    ).then(
       receipt => {
         if (ended) return
         timer = setTimeout(
@@ -157,6 +162,14 @@ export function requestHelp(options: HelpOptions): Promise<Result> {
               errorResult(
                 'tab-unreachable',
                 'bağlı sekmeye şu an ulaşılamıyor (bağlantısı düştü); 60 sn içinde dönerse bağlama sürer'
+              )
+            )
+          }
+          if (error.code === 'rate-limited') {
+            return end(
+              errorResult(
+                'busy',
+                'hız sınırı: yetki başına saniyede en çok 5 istek; biraz sonra yeniden deneyin'
               )
             )
           }

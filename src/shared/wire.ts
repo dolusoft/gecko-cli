@@ -31,6 +31,8 @@ export interface HubErrorBody {
   message?: string
   /** `gone` only: why the binding ended. */
   reason?: GoneReason
+  /** `rate-limited` only: when the grant's bucket holds a request again. */
+  retryAfterMs?: number
 }
 
 /** Why a binding ended (§5.3). */

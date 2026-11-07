@@ -10,11 +10,15 @@ import { parseFrame } from './wire.ts'
 export class HubError extends Error {
   readonly code: string
   readonly reason?: string
+  readonly retryAfterMs?: number
   constructor(body: HubErrorBody) {
     super(body.message ?? body.code)
     this.name = 'HubError'
     this.code = body.code
     this.reason = body.reason
+    if (typeof body.retryAfterMs === 'number') {
+      this.retryAfterMs = body.retryAfterMs
+    }
   }
 }
 

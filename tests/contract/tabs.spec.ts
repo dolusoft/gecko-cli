@@ -305,7 +305,10 @@ describe('§5.5 tabs', () => {
     const { dir, tab } = await bound()
     const first = cli(['--json', 'slow', '--ms', '1500'], { configDir: dir })
     await pause(300)
+    const started = Date.now()
     const second = await run(['search', '--ip', '1'], dir)
+    // Not the rate limit: no retry, the answer comes at once.
+    expect(Date.now() - started).toBeLessThan(1000)
     expect(second.code).toBe(4)
     expect(second.result.code).toBe('busy')
     expect(tab.busyAttempts).toHaveLength(1)
@@ -478,6 +481,34 @@ describe('§13 extra checks', () => {
     expect(codes).toEqual(Array.from({ length: 20 }, () => 0))
   }, 60_000)
 
+  it('the rate limit: 50 calls in a row past the burst wait and retry, no error', async () => {
+    const own = await startHub({
+      GECKO_DEV_HUB_TIMINGS: JSON.stringify(timings),
+      GECKO_DEV_HUB_RATE: '5',
+      // A burst of 2: most of the 50 calls meet the limit and retry.
+      GECKO_DEV_HUB_BURST: '2'
+    })
+    const config = tempConfig()
+    cleanups.push(() => config.remove())
+    await login(own, config.dir)
+    const tab = await fakeTab({
+      hubUrl: own.url,
+      commands: commands(newProbe())
+    })
+    await attach(own, config.dir, tab)
+    const codes: unknown[] = []
+    try {
+      for (let i = 0; i < 50; i++) {
+        const result = await jsonRun(['search', '--ip', '1'], config.dir, fast)
+        codes.push(result.code === 0 ? 0 : result.result.code)
+      }
+    } finally {
+      await tab.close()
+      await own.stop()
+    }
+    expect(codes).toEqual(Array.from({ length: 50 }, () => 0))
+  }, 90_000)
+
   it('the rate limit: 30 requests at once run into the bucket', async () => {
     const own = await startHub({
       GECKO_DEV_HUB_TIMINGS: JSON.stringify(timings),
@@ -510,7 +541,10 @@ describe('§13 extra checks', () => {
     const passed = outcomes.filter(o => o.status === 'fulfilled').length
     expect(passed).toBeGreaterThanOrEqual(20)
     expect(passed).toBeLessThan(25)
-    expect(outcomes[29]).toMatchObject({ reason: { code: 'busy' } })
+    expect(outcomes[29]).toMatchObject({ reason: { code: 'rate-limited' } })
+    const refused = outcomes[29] as PromiseRejectedResult
+    expect(refused.reason.retryAfterMs).toBeGreaterThan(0)
+    expect(refused.reason.retryAfterMs).toBeLessThanOrEqual(200)
   })
 
   it('a tab that stops answering pings: tab-unreachable, then active on a pong', async () => {

@@ -892,7 +892,10 @@ export async function startDevHub(
     // The browser page (`/cli-login`) calls the hub from the web origin.
     if (webOrigin && request.headers.origin === webOrigin) {
       response.setHeader('Access-Control-Allow-Origin', webOrigin)
-      response.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+      response.setHeader(
+        'Access-Control-Allow-Headers',
+        'Authorization, Content-Type'
+      )
       response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
       response.setHeader('Vary', 'Origin')
     }

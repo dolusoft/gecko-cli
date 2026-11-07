@@ -230,7 +230,10 @@ describe('the browser page reaches the hub (CORS)', () => {
     expect(ok.headers.get('access-control-allow-origin')).toBe(origin)
     const other = await fetch(`${hub.url}/oauth/device/verify`, {
       method: 'OPTIONS',
-      headers: { Origin: 'http://evil.example', 'Access-Control-Request-Method': 'POST' }
+      headers: {
+        Origin: 'http://evil.example',
+        'Access-Control-Request-Method': 'POST'
+      }
     })
     expect(other.headers.get('access-control-allow-origin')).toBeNull()
   })

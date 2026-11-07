@@ -889,6 +889,17 @@ export async function startDevHub(
   // --- connections -----------------------------------------------------------
 
   const server = createServer((request, response) => {
+    // The browser page (`/cli-login`) calls the hub from the web origin.
+    if (webOrigin && request.headers.origin === webOrigin) {
+      response.setHeader('Access-Control-Allow-Origin', webOrigin)
+      response.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+      response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+      response.setHeader('Vary', 'Origin')
+    }
+    if (request.method === 'OPTIONS') {
+      response.writeHead(204).end()
+      return
+    }
     http(request, response).catch(error => {
       log(`http error: ${String(error)}`)
       if (!response.headersSent) {

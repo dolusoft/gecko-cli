@@ -10,7 +10,7 @@ import { CliFailure, deviceLogin, resolveEnv, revokeToken } from './auth.ts'
 import { openBrowser } from './browser.ts'
 import { helpInput, requestHelp } from './help.ts'
 import { deleteToken, readToken, writeDefaultEnv } from './config.ts'
-import type { Result } from './output.ts'
+import type { FormatOptions, Result } from './output.ts'
 import {
   asciiJson,
   errorResult,
@@ -57,6 +57,7 @@ Seçenekler (komut adından önce):
   --line <satır|->  satırın tamamı ya da stdin
 
 Her kendi komutunda --help o komutun kullanımını basar.
+CLI seçenekleri komut adından önce gelir: gecko --json <komut> …; tam çıktı için --json.
 
 Çıkış kodları: 0 tamam · 1 komut hatası · 2 kullanım · 3 izin/onay yok ·
 4 çalışmadı (yeniden denenebilir) · 5 sonuç bilinmiyor · 6 kimlik · 130 Ctrl+C
@@ -139,9 +140,13 @@ const io = {
   }
 }
 
+const helpFooter =
+  'CLI seçenekleri komut adından önce gelir: gecko --json <komut> …; tam çıktı için --json.'
+
 async function emit(
   result: Result,
-  options: Parsed['options']
+  options: Parsed['options'],
+  extra: FormatOptions = {}
 ): Promise<number> {
   const code = exitOf(result)
   const columns =
@@ -150,7 +155,7 @@ async function emit(
       : undefined
   const text = options.json
     ? `${asciiJson(result)}\n`
-    : plainText(result, columns ? { columns } : {})
+    : plainText(result, columns ? { columns, ...extra } : extra)
   if (options.out !== undefined) {
     writeFileSync(options.out, text, 'utf8')
   } else {
@@ -352,7 +357,12 @@ async function own(
             ? Number(process.env.GECKO_DELIVERY_MARGIN_MS)
             : undefined
         })
-        return await emit(result, options)
+        // Only the list (a page of commands) carries the CLI-options note.
+        const list =
+          typeof result.data === 'object' &&
+          result.data !== null &&
+          'commands' in result.data
+        return await emit(result, options, list ? { footer: helpFooter } : {})
       } finally {
         await close(session)
       }
@@ -388,7 +398,7 @@ async function lineCommand(
     if (result.view?.title && !parsed.options.json) {
       io.info(`Görünüm: ${result.view.title}`)
     }
-    return await emit(result, parsed.options)
+    return await emit(result, parsed.options, { line })
   } finally {
     await close(session)
   }

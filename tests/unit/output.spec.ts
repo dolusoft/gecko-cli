@@ -156,3 +156,48 @@ describe('§6.1 JSON and text', () => {
     ).toContain('eksik')
   })
 })
+
+describe('T4 help schema, footer and continuation', () => {
+  const schema = {
+    type: 'object',
+    required: ['ip'],
+    properties: {
+      ip: { type: 'string', description: 'Hedef adres '.repeat(8) },
+      source: {
+        type: 'array',
+        items: { type: 'string', enum: ['a', 'b'] },
+        maxItems: 3
+      },
+      limit: { type: 'integer', minimum: 1, maximum: 50 }
+    }
+  }
+  const ok = (data: unknown) => ({
+    v: 1 as const,
+    status: 'ok' as const,
+    preview: false,
+    complete: true,
+    untrusted: [],
+    data
+  })
+
+  it('prints one option per line without cutting, wrapping the description', () => {
+    const text = plainText(ok({ name: 'x', input: schema }), { columns: 50 })
+    expect(text).toContain('--ip <string> · zorunlu')
+    expect(text).toContain(
+      '--source <string>… · isteğe bağlı · enum: a|b · maxItems 3'
+    )
+    expect(text).toContain('--limit <integer> · isteğe bağlı · min 1 · max 50')
+    for (const row of text.split('\n')) {
+      expect(Array.from(row).length).toBeLessThanOrEqual(80)
+    }
+  })
+
+  it('writes the footer and the continuation line', () => {
+    const text = plainText(ok({ items: [{ a: 1 }], nextCursor: '24' }), {
+      line: 'tasks.list --limit 5 --cursor 12',
+      footer: 'son'
+    })
+    expect(text).toContain('devamı: gecko tasks.list --limit 5 --cursor 24')
+    expect(text.trimEnd().endsWith('son')).toBe(true)
+  })
+})

@@ -159,6 +159,9 @@ export function plainText(result: Result, format: FormatOptions = {}): string {
   if (!result.complete) {
     lines.push('(sonuç eksik geldi; veri basılmadı)')
   }
+  const more = continuation(result.data, format.line)
+  if (more !== undefined) lines.push(more)
+  if (format.footer !== undefined) lines.push(format.footer)
   return lines.length > 0 ? `${lines.join('\n')}\n` : ''
 }
 
@@ -195,6 +198,117 @@ function isRows(value: unknown): value is Record<string, unknown>[] {
 export interface FormatOptions {
   /** The terminal's width; the table drops the columns that do not fit. */
   columns?: number
+  /** The line that ran; a page's `nextCursor` turns it into the next one. */
+  line?: string
+  /** A last line for the reader (the help list's note on CLI options). */
+  footer?: string
+}
+
+/** "devamı: gecko <line> --cursor N" for a page that has a `nextCursor`. */
+function continuation(
+  data: unknown,
+  line: string | undefined
+): string | undefined {
+  if (line === undefined || !isRow(data)) return undefined
+  const next = data.nextCursor
+  if (typeof next !== 'string' && typeof next !== 'number') return undefined
+  const base = line
+    .replace(/\s--cursor(?:=|\s+)(?:"[^"]*"|'[^']*'|\S+)/g, '')
+    .trim()
+  return `devamı: gecko ${escapeControls(base)} --cursor ${escapeControls(String(next))}`
+}
+
+interface SchemaField {
+  type?: unknown
+  items?: unknown
+  enum?: unknown
+  minimum?: unknown
+  maximum?: unknown
+  minItems?: unknown
+  maxItems?: unknown
+  description?: unknown
+}
+
+type Schema = { properties: Record<string, SchemaField>; required?: unknown }
+
+function isSchema(value: unknown): value is Schema {
+  return (
+    isRow(value) &&
+    isRow(value.properties) &&
+    Object.values(value.properties).every(isRow)
+  )
+}
+
+/** Splits text into lines of at most `max` code points at spaces. */
+function wrap(text: string, max: number): string[] {
+  const out: string[] = []
+  let current = ''
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (current !== '' && width(current) + 1 + width(word) > max) {
+      out.push(current)
+      current = word
+    } else {
+      current = current === '' ? word : `${current} ${word}`
+    }
+  }
+  if (current !== '') out.push(current)
+  return out
+}
+
+/**
+ * A command's `input` schema as one option per line: `--ad <tip>`, whether it
+ * is required, enum/min/max/maxItems, then the description wrapped to the
+ * terminal. An array option may repeat (`--source <string>…`).
+ */
+function schemaLines(schema: Schema, columns: number | undefined): string {
+  const required = new Set(
+    Array.isArray(schema.required) ? (schema.required as unknown[]) : []
+  )
+  const lines: string[] = []
+  for (const [name, field] of Object.entries(schema.properties)) {
+    const items = isRow(field.items) ? (field.items as SchemaField) : undefined
+    const array = field.type === 'array'
+    const rawType = array ? items?.type : field.type
+    const type = Array.isArray(rawType)
+      ? rawType.join('|')
+      : typeof rawType === 'string'
+        ? rawType
+        : array
+          ? 'string'
+          : 'any'
+    const parts = [
+      `--${escapeControls(name)} <${escapeControls(type)}>${array ? '…' : ''}`,
+      required.has(name) ? 'zorunlu' : 'isteğe bağlı'
+    ]
+    const enumValues = Array.isArray(field.enum)
+      ? field.enum
+      : Array.isArray(items?.enum)
+        ? items.enum
+        : undefined
+    if (enumValues) {
+      parts.push(
+        `enum: ${enumValues.map(v => escapeControls(String(v))).join('|')}`
+      )
+    }
+    if (field.minimum !== undefined) parts.push(`min ${String(field.minimum)}`)
+    if (field.maximum !== undefined) parts.push(`max ${String(field.maximum)}`)
+    if (field.minItems !== undefined) {
+      parts.push(`minItems ${String(field.minItems)}`)
+    }
+    if (field.maxItems !== undefined) {
+      parts.push(`maxItems ${String(field.maxItems)}`)
+    }
+    lines.push(`  ${parts.join(' · ')}`)
+    if (typeof field.description === 'string' && field.description !== '') {
+      const text = escapeControls(field.description)
+      const wrapped =
+        columns !== undefined && columns > 10
+          ? wrap(text, Math.max(20, columns - 6))
+          : [text.replace(/\s+/g, ' ')]
+      for (const row of wrapped) lines.push(`      ${row}`)
+    }
+  }
+  return lines.length > 0 ? lines.join('\n') : '  (alan yok)'
 }
 
 /**
@@ -223,7 +337,9 @@ export function formatData(data: unknown, options: FormatOptions = {}): string {
       if (gridded && (key === 'columns' || key === 'rows')) {
         continue
       }
-      if (isRows(value)) {
+      if (key === 'input' && isSchema(value)) {
+        fields.push(`input:\n${schemaLines(value, options.columns)}`)
+      } else if (isRows(value)) {
         tables.push(`${escapeControls(key)}:\n${table(value, options.columns)}`)
       } else if (Array.isArray(value) && value.length === 0) {
         fields.push(`${escapeControls(key)}: (boş)`)

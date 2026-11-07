@@ -8,6 +8,9 @@
 - Geliştirme hub'ı (`@dolusoft/gecko-cli/dev-hub`): cihaz girişi, CLI token'ı, bağlama, damga, yönlendirme, hız sınırı, iptal.
 - Tarayıcı tarafı istemcisi (`@dolusoft/gecko-cli/tab-client`) ve [docs/browser-side.md](docs/browser-side.md).
 - `Transport` arayüzü; SignalR taşıması iskelet.
+- Düz metin `gecko help <komut>` `input` şemasını kesmeden basar: alan başına bir satır (tip, zorunlu, enum/min/max/maxItems), açıklama terminal genişliğinde kaydırılır.
+- `gecko help` listesi ve `gecko --help` altında "CLI seçenekleri komut adından önce gelir" notu.
+- `nextCursor` dönen sonuçlarda düz metin sonuna `devamı: gecko <satır> --cursor N`.
 
 ### Spec'ten sapmalar
 

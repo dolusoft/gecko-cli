@@ -13,9 +13,12 @@ Kullanıcı deneyimi turu: frontend-v2-design `design/desktop-cli-ux.md` (taslak
 - **U9** Bağlamayla ilgili her hata yolu bağlantıyı açıkça kapatır (birim testi); `openSession`'da `status` hatası da. `--json` hata nesnesinde `exitCode`. `gecko attach` sayfa kimliği yerine sekme başlığını ve yolunu yazar. Bağlama yokken `gecko detach` "Bağlama yoktu", kod 0. Girişsiz `gecko --json help` JSON hata nesnesi, kod 6.
 
 - Çekiç turu 2: `gecko attach` sekme `/cli-pair` sayfasındayken başlık ve yol yazmaz, yalnız "Bağlandı" (sekme hemen ardından başka sayfaya geçtiği için başlık bayat olur); `nav.where` cevap vermezse de yalnız "Bağlandı". "Görünüm: …" satırı yalnız `dataview.*` komutlarında ya da `--view` verildiğinde basılır; `--json`'daki `view` alanı değişmedi.
+- Hub: kapanış el sıkışmasına girmiş (kapanış çerçevesi gelmiş, `close` olayı henüz düşmemiş) CLI bağlantısı yetkiyi tutmaz; hemen ardından gelen çağrı `busy` almaz. Windows'ta soket kapanışı geciktiği için ardışık iki `gecko` çağrısında ara ara görülüyordu.
+- `received` gelmeden bağlantı koparsa okuma komutu kod 4 `connection-lost` ("okuma komutu güvenle yeniden denenir"); değiştiren komutta kod 5 `unknown` kalır.
 
 ### Spec'ten sapmalar
 
+- §5.5: `received` öncesi kopma tablo satırı komut sınıfına bakmıyor (her durumda `unknown`, kod 5); CLI okuma komutunda kod 4 `connection-lost` döndürür. Spec güncellenecek.
 - U3: onay metni "Tarayıcıda onay bekleniyor (~2 dk)" değil "Onay bekleniyor (~2 dk): tarayıcıdaki Gecko sekmesinde onaylayın."; mevcut metin ve testlerle sürekli kalsın diye. "Hiçbir şey değişmedi" CLI'da hiç yazılmıyordu; bu cümle sekmeden gelir, CLI'da iş yok.
 - U5: yanlış yer denetimi yalnız `--json`, `--out`, `--line` için; `--view` ve `--env` bir komutun kendi alanı olabileceği için satır komutlarında işaretlenmez. Başka bir bayraktan hemen sonra gelen değer (`--q --json`) o bayrağın değeri sayılır. Önerilen satır `quoteArgument` ile yazılır, yani tek tırnaklı (`--text 'data view'`).
 - U6: nesne dizisinde öncelik `title`, `name`, `value` (spec sırası). Süre listesi: `durationMs`, `runningMs`, `ageMs`, `snapshotAgeMs`, `dataAgeMs`, `elapsedMs`, `uptimeMs`; `startMs`/`endMs` epoch olduğu için dışarıda. Dikey geçiş eşiği: kimlik sütunları terminal genişliğinin yarısını aşınca. İç içe değer özeti yalnız tablo hücresinde; `anahtar: değer` satırları eskisi gibi.

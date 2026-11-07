@@ -243,6 +243,8 @@ export interface FakeTabOptions {
   /** Replies the tab never sends (a lost `received`). */
   dropReplies?: (reply: { kind: string }) => boolean
   extra?: Partial<ConsoleOptions>
+  /** The title the tab gives a view id in `finished`. */
+  viewTitle?: (view: string) => string | undefined
 }
 
 let pages = 0
@@ -308,7 +310,8 @@ export async function fakeTab(options: FakeTabOptions): Promise<FakeTab> {
           () => undefined
         )
       },
-      ...(options.status ? { status: options.status } : {})
+      ...(options.status ? { status: options.status } : {}),
+      ...(options.viewTitle ? { viewTitle: options.viewTitle } : {})
     })
   const waitPlan = async () => {
     for (let i = 0; i < 500; i++) {

@@ -12,6 +12,8 @@ Kullanıcı deneyimi turu: frontend-v2-design `design/desktop-cli-ux.md` (taslak
 - **U6** Tablo: kimlik sütunları kırpılmaz, terminalin yarısını aşarsa dikey gösterim; her satırda boş sütun gizlenir ve adıyla yazılır (`0`/`false` boş değil); dizi `[n]`, adlı öğe dizisi adlarıyla, nesne `{…}`; bilinen süre alanları insan diliyle. Boş sütun ve kimlik kuralı `columns`+`rows` ızgarasında da geçerli.
 - **U9** Bağlamayla ilgili her hata yolu bağlantıyı açıkça kapatır (birim testi); `openSession`'da `status` hatası da. `--json` hata nesnesinde `exitCode`. `gecko attach` sayfa kimliği yerine sekme başlığını ve yolunu yazar. Bağlama yokken `gecko detach` "Bağlama yoktu", kod 0. Girişsiz `gecko --json help` JSON hata nesnesi, kod 6.
 
+- Çekiç turu 2: `gecko attach` sekme `/cli-pair` sayfasındayken başlık ve yol yazmaz, yalnız "Bağlandı" (sekme hemen ardından başka sayfaya geçtiği için başlık bayat olur); `nav.where` cevap vermezse de yalnız "Bağlandı". "Görünüm: …" satırı yalnız `dataview.*` komutlarında ya da `--view` verildiğinde basılır; `--json`'daki `view` alanı değişmedi.
+
 ### Spec'ten sapmalar
 
 - U3: onay metni "Tarayıcıda onay bekleniyor (~2 dk)" değil "Onay bekleniyor (~2 dk): tarayıcıdaki Gecko sekmesinde onaylayın."; mevcut metin ve testlerle sürekli kalsın diye. "Hiçbir şey değişmedi" CLI'da hiç yazılmıyordu; bu cümle sekmeden gelir, CLI'da iş yok.

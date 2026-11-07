@@ -149,6 +149,31 @@ describe('§6.4 exit codes', () => {
   })
 })
 
+describe('the approval line', () => {
+  it('only when the tab says it opened the approval: not for a read or a preview', async () => {
+    const read = await cli(['echo', '--text', 'merhaba'], { configDir: config.dir }).done
+    expect(read.code).toBe(0)
+    expect(read.stderr).not.toMatch(/Onay bekleniyor/)
+    const preview = await cli(['tasks.stop', '--id', '8812'], {
+      configDir: config.dir
+    }).done
+    expect(preview.code).toBe(0)
+    expect(preview.stderr).not.toMatch(/Onay bekleniyor/)
+    expect(probe.stops).toBe(0)
+  })
+
+  it('once, after awaiting-approval, for a change', async () => {
+    const run = cli(['tasks.stop', '--id', '8812', '--yes'], {
+      configDir: config.dir
+    })
+    await run.waitStderr(/Onay bekleniyor/)
+    await tab.approveNext()
+    const done = await run.done
+    expect(done.code).toBe(0)
+    expect(done.stderr.match(/Onay bekleniyor/g)).toHaveLength(1)
+  })
+})
+
 describe('§6.2 channels and §6.7', () => {
   it('stdout carries the result only; info goes to stderr; no colour in a pipe', async () => {
     hidden = true

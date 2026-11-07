@@ -1,6 +1,6 @@
 {
   "name": "@dolusoft/gecko-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "gecko: the desktop CLI of the Gecko web terminal, and a development hub that implements the hub contract of the desktop CLI specification.",
   "private": false,
   "type": "module",

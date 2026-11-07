@@ -66,6 +66,8 @@ export interface Result {
   view?: { id: string; title?: string }
   hidden?: boolean
   dataAgeMs?: number | null
+  /** The process exit code; set on an error in `--json` (UX U9). */
+  exitCode?: number
   preview: boolean
   suggest?: string
   complete: boolean
@@ -344,7 +346,9 @@ export function formatData(data: unknown, options: FormatOptions = {}): string {
       } else if (Array.isArray(value) && value.length === 0) {
         fields.push(`${escapeControls(key)}: (boş)`)
       } else {
-        fields.push(`${escapeControls(key)}: ${cut(flat(value), valueMax)}`)
+        fields.push(
+          `${escapeControls(key)}: ${cut(flat(shown(key, value)), valueMax)}`
+        )
       }
     }
     return [...fields, ...tables].join('\n')
@@ -381,47 +385,181 @@ function table(data: Record<string, unknown>[], columnsMax?: number): string {
   )
 }
 
+/**
+ * Rows under a header (UX U6): columns empty in every row are hidden and
+ * named; id columns are never cut, and when they take more than half of the
+ * terminal the rows go vertical (`field  value` blocks); other cells are cut
+ * at `cellMax`; the columns that do not fit are named.
+ */
 function grid(
-  columns: string[],
-  cells: unknown[][],
+  allColumns: string[],
+  allCells: unknown[][],
   columnsMax?: number
 ): string {
-  const heads = columns.map(column => cut(escapeControls(column), cellMax))
-  const rows = cells.map(row =>
-    columns.map((_, i) => cut(flat(row[i]), cellMax))
+  const kept = allColumns
+    .map((_, i) => i)
+    .filter(i => allCells.some(row => !isEmpty(row[i])))
+  const hidden = allColumns.filter((_, i) => !kept.includes(i))
+  const columns = kept.map(i => allColumns[i])
+  const values = allCells.map(row =>
+    kept.map(i => shown(allColumns[i], row[i]))
+  )
+  const ids = columns.map((column, i) =>
+    isIdColumn(
+      column,
+      values.map(row => row[i])
+    )
+  )
+  const note =
+    hidden.length > 0
+      ? [`(boş sütunlar gizlendi: ${hidden.map(escapeControls).join(', ')})`]
+      : []
+  if (columns.length === 0) {
+    return ['(boş)', ...note].join('\n')
+  }
+  const texts = values.map(row =>
+    row.map((value, i) => (ids[i] ? cell(value) : cut(cell(value), cellMax)))
+  )
+  const heads = columns.map((column, i) =>
+    ids[i] ? escapeControls(column) : cut(escapeControls(column), cellMax)
   )
   const widths = columns.map((_, i) =>
-    Math.max(width(heads[i]), ...rows.map(row => width(row[i])))
+    Math.max(width(heads[i]), ...texts.map(row => width(row[i])))
   )
+  if (columnsMax !== undefined && columnsMax > 0) {
+    const idWidth = widths
+      .filter((_, i) => ids[i])
+      .reduce((sum, w, n) => sum + w + (n > 0 ? 2 : 0), 0)
+    if (idWidth > columnsMax / 2) {
+      return [...vertical(heads, texts), ...note].join('\n')
+    }
+  }
   // Keep the first columns that fit the terminal; the rest is in --json.
-  let shown = columns.length
+  let count = columns.length
   if (columnsMax !== undefined && columnsMax > 0) {
     let used = 0
-    shown = 0
+    count = 0
     for (const w of widths) {
-      const next = used + (shown > 0 ? 2 : 0) + w
-      if (next > columnsMax && shown > 0) break
+      const next = used + (count > 0 ? 2 : 0) + w
+      if (next > columnsMax && count > 0) break
       used = next
-      shown++
+      count++
     }
   }
   const line = (cells: string[]) =>
     cells
-      .slice(0, shown)
+      .slice(0, count)
       .map((text, i) => text + ' '.repeat(widths[i] - width(text)))
       .join('  ')
       .trimEnd()
   const lines = [
     line(heads),
     line(widths.map(w => '-'.repeat(w))),
-    ...rows.map(line)
+    ...texts.map(line)
   ]
-  if (shown < columns.length) {
+  if (count < columns.length) {
     lines.push(
-      `(+${columns.length - shown} sütun sığmadı: ${columns.slice(shown).join(', ')}; tamamı için --json)`
+      `(+${columns.length - count} sütun sığmadı: ${columns.slice(count).join(', ')}; tamamı için --json)`
     )
   }
-  return lines.join('\n')
+  return [...lines, ...note].join('\n')
+}
+
+/** Each row as a block of `field  value` lines, a blank line between. */
+function vertical(heads: string[], rows: string[][]): string[] {
+  const pad = Math.max(...heads.map(width))
+  const lines: string[] = []
+  rows.forEach((row, n) => {
+    if (n > 0) lines.push('')
+    row.forEach((text, i) => {
+      if (text === '') return
+      lines.push(`${heads[i]}${' '.repeat(pad - width(heads[i]))}  ${text}`)
+    })
+  })
+  return lines
+}
+
+/** Duration fields by name (UX U6); `startMs` and `endMs` are epochs. */
+export const durationFields = new Set([
+  'durationMs',
+  'runningMs',
+  'ageMs',
+  'snapshotAgeMs',
+  'dataAgeMs',
+  'elapsedMs',
+  'uptimeMs'
+])
+
+/** 454558943 → "5 g 6 sa": the two largest units from the first one. */
+export function humanDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  const units: [string, number][] = [
+    ['g', 86_400_000],
+    ['sa', 3_600_000],
+    ['dk', 60_000],
+    ['sn', 1000]
+  ]
+  let rest = Math.floor(ms)
+  const first = units.findIndex(([, size]) => rest >= size)
+  const parts: string[] = []
+  for (const [name, size] of units.slice(first, first + 2)) {
+    const count = Math.floor(rest / size)
+    rest -= count * size
+    if (count > 0) parts.push(`${count} ${name}`)
+  }
+  return parts.join(' ')
+}
+
+/** A field's value for a reader: a known duration in words, else as is. */
+function shown(key: string, value: unknown): unknown {
+  return durationFields.has(key) &&
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= 0
+    ? humanDuration(value)
+    : value
+}
+
+/**
+ * A table cell (UX U6): an array is `[n]`, or its members' `title`, `name`
+ * or `value` joined when every member has one; an object is `{…}`.
+ */
+function cell(value: unknown): string {
+  if (Array.isArray(value)) {
+    for (const key of ['title', 'name', 'value']) {
+      const named =
+        value.length > 0 &&
+        value.every(
+          item =>
+            isRow(item) &&
+            (typeof item[key] === 'string' || typeof item[key] === 'number')
+        )
+      if (named) {
+        return flat(
+          value
+            .map(item => String((item as Record<string, unknown>)[key]))
+            .join(', ')
+        )
+      }
+    }
+    return `[${value.length}]`
+  }
+  if (isRow(value)) return '{…}'
+  return flat(value)
+}
+
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** `id`, `workId`, `…Id` or a column of UUIDs: never cut (UX U6). */
+function isIdColumn(name: string, values: unknown[]): boolean {
+  if (name === 'id' || /Id$/.test(name)) return true
+  const present = values.filter(v => typeof v === 'string' && v !== '')
+  return present.length > 0 && present.every(v => uuid.test(v as string))
+}
+
+/** `null`, `""` and a missing field are empty; `0` and `false` are not. */
+function isEmpty(value: unknown): boolean {
+  return value === null || value === undefined || value === ''
 }
 
 function width(text: string): number {

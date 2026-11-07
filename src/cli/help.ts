@@ -17,6 +17,7 @@ import { errorResult, markUntrusted } from './output.ts'
 import { sendRetrying } from './retry.ts'
 import { commandOf } from './run.ts'
 import { goneMessage } from './session.ts'
+import { unknownCommandMessage } from './suggest.ts'
 
 /** The `help` tool's input from `gecko help` arguments. */
 export function helpInput(
@@ -69,10 +70,10 @@ export function unknownHelpTarget(
   if (known.some(name => name === target || name.startsWith(`${target}.`))) {
     return undefined
   }
-  return errorResult(
-    'unknown-command',
-    `bilinmeyen komut: ${target}. Komutlar için: gecko help`
-  )
+  const { message, near } = unknownCommandMessage(capabilities, target)
+  return errorResult('unknown-command', message, {
+    ...(near.length > 0 ? { suggest: `help ${near[0]}` } : {})
+  })
 }
 
 /** The tab's help output as a CLI result. */

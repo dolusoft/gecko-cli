@@ -10,6 +10,7 @@ export const ownCommands = [
   'attach',
   'detach',
   'help',
+  'status',
   'dev-hub'
 ] as const
 
@@ -113,13 +114,54 @@ export function parseArgs(argv: readonly string[]): Parsed {
     if (args.some(isHelpFlag)) {
       return { kind: 'usage', options, command: name as OwnCommand }
     }
+    const misplaced = misplacedOption(name, args, true)
+    if (misplaced) return { kind: 'error', options, message: misplaced }
     return { kind: 'own', command: name as OwnCommand, options, args }
   }
   // `gecko <command> --help` alone is the tab's help of that command.
   if (args.length === 1 && isHelpFlag(args[0])) {
     return { kind: 'own', command: 'help', options, args: [name] }
   }
+  const misplaced = misplacedOption(name, args, false)
+  if (misplaced) return { kind: 'error', options, message: misplaced }
   return { kind: 'line', options, line: toLine(rest) }
+}
+
+/** CLI options that are never a tab command's field (UX U5). */
+const cliOnly = new Set(['--json', '--out', '--line'])
+
+/**
+ * `gecko tasks.list --json`: a CLI option after the command name (UX U5).
+ * The line is not moved; the message names the right order. In a line, a
+ * token right after another flag is that flag's value (`--q --json` looks
+ * for "--json") and is left alone, as is everything after `--`. `--view`
+ * and `--env` may be a command's own fields and are never flagged there.
+ */
+function misplacedOption(
+  name: string,
+  args: readonly string[],
+  own: boolean
+): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const token = args[i]
+    if (token === '--') return undefined
+    const flag = token.includes('=')
+      ? token.slice(0, token.indexOf('='))
+      : token
+    const flagged =
+      cliOnly.has(flag) ||
+      (own && name !== 'login' && (flag === '--env' || flag === '--view'))
+    if (!flagged) continue
+    if (!own && i > 0 && args[i - 1].startsWith('-')) continue
+    const valued = flag !== '--json' && !token.includes('=')
+    const moved = valued ? [token, args[i + 1] ?? '<değer>'] : [token]
+    const others = args.filter((_, n) => n !== i && !(valued && n === i + 1))
+    const fixed = ['gecko', ...moved, name, ...others]
+      .map(part => (part === 'gecko' ? part : quoteArgument(part)))
+      .join(' ')
+    return `CLI seçenekleri komuttan önce gelir: ${fixed}`
+  }
+  return undefined
 }
 
 function isHelpFlag(token: string): boolean {

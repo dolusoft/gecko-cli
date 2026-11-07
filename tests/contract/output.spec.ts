@@ -138,8 +138,9 @@ describe('§6.4 exit codes', () => {
     const run = cli(['tasks.stop', '--id', '8812', '--yes'], {
       configDir: config.dir
     })
+    // The time left comes from the plan's expiresAt (UX U3).
     await run.waitStderr(
-      /Onay bekleniyor: tarayıcıdaki Gecko sekmesinde onaylayın/
+      /Onay bekleniyor \(~\d+ (dk|sn)\): tarayıcıdaki Gecko sekmesinde onaylayın/
     )
     await tab.approveNext()
     const done = await run.done
@@ -186,6 +187,15 @@ describe('§6.2 channels and §6.7', () => {
     expect(run.code).toBe(0)
     expect(run.stdout.startsWith('3 satır · 1.1.1.1\n')).toBe(true)
     expect(run.stdout).not.toContain('\u001b')
+    // dataAgeMs is the task snapshot's age: no staleness for search (UX U4).
+    expect(run.stderr).toContain('sekme arka planda')
+    expect(run.stderr).not.toContain('sn eski')
+  })
+
+  it('the staleness line only for tasks.* (UX U4)', async () => {
+    hidden = true
+    const run = await cli(['tasks.list'], { configDir: config.dir }).done
+    expect(run.code).toBe(0)
     expect(run.stderr).toContain('sekme arka planda, liste 42 sn eski')
   })
 
@@ -317,7 +327,7 @@ describe('§4 help', () => {
   it('gecko help <namespace> keeps one namespace; plain text is a table', async () => {
     const run = await cli(['help', 'tasks'], { configDir: config.dir }).done
     expect(run.code).toBe(0)
-    expect(run.stdout).toMatch(/^tasks: 1 komut/)
+    expect(run.stdout).toMatch(/^tasks: 2 komut/)
     expect(run.stdout).toMatch(/commands:\nname\s+.*danger\n-+/)
     expect(run.stdout).toMatch(/tasks\.stop\s+change/)
     expect(run.stdout).not.toContain('{"')

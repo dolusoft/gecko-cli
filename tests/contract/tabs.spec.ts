@@ -118,15 +118,52 @@ async function rawBrowser(hubUrl: string, pageId: string) {
 }
 
 describe('§5.5 tabs', () => {
-  it('no tab: the first command opens pairing, then runs', async () => {
+  it('no tab, a person at a TTY: the first command opens pairing, then runs once (UX U2)', async () => {
     const dir = await loggedIn()
-    const { tab } = await tabOf()
-    const call = cli(['--json', 'search', '--ip', '1'], { configDir: dir })
+    const { tab, probe } = await tabOf()
+    // GECKO_TEST_TTY makes the spec's pipes count as a terminal.
+    const call = cli(['echo', '--text', 'bir'], {
+      configDir: dir,
+      env: { GECKO_TEST_TTY: '1' }
+    })
+    await call.waitStderr(/Bağlı sekme yok; tarayıcıda bağlama sayfasını/)
     const [, code] = await call.waitStderr(/Kod: (\S+)/)
     await tab.pair(code)
     const done = await call.done
     expect(done.code).toBe(0)
-    expect(JSON.parse(done.stdout).status).toBe('ok')
+    expect(probe.echoed).toEqual(['bir'])
+    expect(
+      tab.heard.filter(m => (m as { kind?: string }).kind === 'cli-request')
+    ).toHaveLength(1)
+  })
+
+  it('no tab, --json, --line or no TTY: no-binding at once, code 4 (UX U2)', async () => {
+    const dir = await loggedIn()
+    const runs = [
+      await cli(['--json', 'search', '--ip', '1'], {
+        configDir: dir,
+        env: { GECKO_TEST_TTY: '1' }
+      }).done,
+      await cli(['--json', '--line', '-'], {
+        configDir: dir,
+        stdin: 'search --ip 1\n',
+        env: { GECKO_TEST_TTY: '1' }
+      }).done,
+      await cli(['search', '--ip', '1'], { configDir: dir }).done,
+      await cli(['--json', 'help'], {
+        configDir: dir,
+        env: { GECKO_TEST_TTY: '1' }
+      }).done
+    ]
+    for (const done of runs) {
+      expect(done.code).toBe(4)
+      expect(done.stderr).not.toMatch(/Kod: /)
+    }
+    expect(JSON.parse(runs[0].stdout)).toMatchObject({
+      code: 'no-binding',
+      exitCode: 4
+    })
+    expect(runs[2].stderr).toContain('gecko attach')
   })
 
   it('no approval within the pairing time: code 3', async () => {

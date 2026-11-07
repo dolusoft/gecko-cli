@@ -199,7 +199,9 @@ export interface FormatOptions {
 
 /**
  * `data` for a reader (§6): an array of rows, or an object's arrays of rows
- * (`items`), as tables; other fields as `key: value`. `--json` keeps it all.
+ * (`items`), as tables; an object's `columns` + `rows` grid (`dataview.rows`)
+ * as one table headed by `columns`; other fields as `key: value`. `--json`
+ * keeps it all.
  */
 export function formatData(data: unknown, options: FormatOptions = {}): string {
   if (isRows(data)) {
@@ -213,7 +215,14 @@ export function formatData(data: unknown, options: FormatOptions = {}): string {
   if (isRow(data)) {
     const fields: string[] = []
     const tables: string[] = []
+    const gridded = isGrid(data)
+    if (gridded) {
+      tables.push(grid(data.columns, data.rows, options.columns))
+    }
     for (const [key, value] of Object.entries(data)) {
+      if (gridded && (key === 'columns' || key === 'rows')) {
+        continue
+      }
       if (isRows(value)) {
         tables.push(`${escapeControls(key)}:\n${table(value, options.columns)}`)
       } else if (Array.isArray(value) && value.length === 0) {
@@ -230,6 +239,18 @@ export function formatData(data: unknown, options: FormatOptions = {}): string {
   return flat(data)
 }
 
+/** `{ columns: string[], rows: unknown[][] }`: a table sent as a grid. */
+function isGrid(
+  value: Record<string, unknown>
+): value is { columns: string[]; rows: unknown[][] } {
+  return (
+    Array.isArray(value.columns) &&
+    value.columns.every(column => typeof column === 'string') &&
+    Array.isArray(value.rows) &&
+    value.rows.every(row => Array.isArray(row))
+  )
+}
+
 function table(data: Record<string, unknown>[], columnsMax?: number): string {
   const columns: string[] = []
   for (const row of data.slice(0, columnRows)) {
@@ -237,9 +258,21 @@ function table(data: Record<string, unknown>[], columnsMax?: number): string {
       if (!columns.includes(key)) columns.push(key)
     }
   }
+  return grid(
+    columns,
+    data.map(row => columns.map(column => row[column])),
+    columnsMax
+  )
+}
+
+function grid(
+  columns: string[],
+  cells: unknown[][],
+  columnsMax?: number
+): string {
   const heads = columns.map(column => cut(escapeControls(column), cellMax))
-  const rows = data.map(row =>
-    columns.map(column => cut(flat(row[column]), cellMax))
+  const rows = cells.map(row =>
+    columns.map((_, i) => cut(flat(row[i]), cellMax))
   )
   const widths = columns.map((_, i) =>
     Math.max(width(heads[i]), ...rows.map(row => width(row[i])))

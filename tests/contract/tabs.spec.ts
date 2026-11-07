@@ -2,6 +2,7 @@
 // checks of §13, against the development hub as a real process.
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { WebSocket } from 'ws'
 
 import { commands, newProbe } from '../support/commands.ts'
 import type { HubProcess } from '../support/harness.ts'
@@ -76,6 +77,45 @@ async function bound(options: Partial<Parameters<typeof fakeTab>[0]> = {}) {
 }
 
 const run = (args: string[], dir: string) => jsonRun(args, dir, fast)
+
+async function bindingState(own: HubProcess, dir: string) {
+  const transport = await rawCli(own, dir)
+  const status = await transport.status()
+  await transport.close()
+  return status.binding?.state ?? ''
+}
+
+/** A tab on a bare socket that answers pings only while it is told to. */
+async function rawBrowser(hubUrl: string, pageId: string) {
+  const socket = new WebSocket(
+    `${hubUrl.replace(/^http/, 'ws')}/hub?access_token=dev:u1`,
+    { autoPong: false }
+  )
+  const self = { answerPings: true }
+  socket.on('ping', data => {
+    if (self.answerPings) socket.pong(data)
+  })
+  const pending = new Map<number, (frame: Record<string, unknown>) => void>()
+  let next = 0
+  await new Promise<void>((resolve, reject) => {
+    socket.on('message', raw => {
+      const frame = JSON.parse(String(raw)) as Record<string, unknown>
+      if (frame.t === 'event' && frame.name === 'ready') resolve()
+      if (frame.t === 'result') pending.get(frame.id as number)?.(frame)
+    })
+    socket.on('error', reject)
+  })
+  const invoke = (method: string, args: unknown) =>
+    new Promise<unknown>((resolve, reject) => {
+      const id = ++next
+      pending.set(id, frame =>
+        frame.ok ? resolve(frame.value) : reject(frame.error as Error)
+      )
+      socket.send(JSON.stringify({ t: 'invoke', id, method, args }))
+    })
+  await invoke('hello', { pageId })
+  return Object.assign(self, { invoke, close: () => socket.terminate() })
+}
 
 describe('§5.5 tabs', () => {
   it('no tab: the first command opens pairing, then runs', async () => {
@@ -412,7 +452,33 @@ describe('§13 extra checks', () => {
     expect(probe.stops).toBe(0)
   })
 
-  it('the rate limit: the sixth request in a second is busy', async () => {
+  it('the rate limit: 20 calls one after another are never busy', async () => {
+    const own = await startHub({
+      GECKO_DEV_HUB_TIMINGS: JSON.stringify(timings),
+      GECKO_DEV_HUB_RATE: '5'
+    })
+    const config = tempConfig()
+    cleanups.push(() => config.remove())
+    await login(own, config.dir)
+    const tab = await fakeTab({
+      hubUrl: own.url,
+      commands: commands(newProbe())
+    })
+    await attach(own, config.dir, tab)
+    const codes: unknown[] = []
+    try {
+      for (let i = 0; i < 20; i++) {
+        const result = await jsonRun(['search', '--ip', '1'], config.dir, fast)
+        codes.push(result.code === 0 ? 0 : result.result.code)
+      }
+    } finally {
+      await tab.close()
+      await own.stop()
+    }
+    expect(codes).toEqual(Array.from({ length: 20 }, () => 0))
+  }, 60_000)
+
+  it('the rate limit: 30 requests at once run into the bucket', async () => {
     const own = await startHub({
       GECKO_DEV_HUB_TIMINGS: JSON.stringify(timings),
       GECKO_DEV_HUB_RATE: '5'
@@ -428,7 +494,7 @@ describe('§13 extra checks', () => {
     await attach(own, config.dir, tab)
     const transport = await rawCli(own, config.dir)
     const outcomes = await Promise.allSettled(
-      Array.from({ length: 6 }, (_, i) =>
+      Array.from({ length: 30 }, (_, i) =>
         transport.send({
           v: 1,
           kind: 'cli-request',
@@ -440,9 +506,54 @@ describe('§13 extra checks', () => {
     await transport.close()
     await tab.close()
     await own.stop()
-    expect(outcomes.filter(o => o.status === 'fulfilled')).toHaveLength(5)
-    expect(outcomes[5]).toMatchObject({ reason: { code: 'busy' } })
+    // A burst of 20; the few that pass beyond it are the refill meanwhile.
+    const passed = outcomes.filter(o => o.status === 'fulfilled').length
+    expect(passed).toBeGreaterThanOrEqual(20)
+    expect(passed).toBeLessThan(25)
+    expect(outcomes[29]).toMatchObject({ reason: { code: 'busy' } })
   })
+
+  it('a tab that stops answering pings: tab-unreachable, then active on a pong', async () => {
+    const own = await startHub({
+      GECKO_DEV_HUB_TIMINGS: JSON.stringify({
+        ...timings,
+        suspendMs: 10_000,
+        heartbeatMs: 200,
+        heartbeatMisses: 2
+      })
+    })
+    const config = tempConfig()
+    cleanups.push(() => config.remove())
+    await login(own, config.dir)
+    const silent = await rawBrowser(own.url, `page-silent-${process.pid}`)
+    try {
+      const call = cli(['attach'], { configDir: config.dir })
+      const [, code] = await call.waitStderr(/Kod: (\S+)/)
+      await silent.invoke('pair', { code })
+      // The bare socket sends no capabilities; the binding is what counts.
+      await call.done
+      expect(await bindingState(own, config.dir)).toBe('active')
+      silent.answerPings = false
+      const stoppedAt = Date.now()
+      let state = ''
+      while (Date.now() - stoppedAt < 15_000) {
+        state = await bindingState(own, config.dir)
+        if (state === 'suspended') break
+        await pause(50)
+      }
+      expect(state).toBe('suspended')
+      expect(Date.now() - stoppedAt).toBeLessThan(15_000)
+      const result = await jsonRun(['search', '--ip', '1'], config.dir, fast)
+      expect(result.code).toBe(4)
+      expect(result.result.code).toBe('tab-unreachable')
+      silent.answerPings = true
+      await pause(600)
+      expect(await bindingState(own, config.dir)).toBe('active')
+    } finally {
+      silent.close()
+      await own.stop()
+    }
+  }, 30_000)
 
   it('the hub overwrites a stamp the client wrote', async () => {
     const { dir, tab } = await bound()

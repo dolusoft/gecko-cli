@@ -43,6 +43,13 @@ export interface DevHubTimings {
   accessTtlMs: number
   /** Refresh token life (§8: 7 days). */
   refreshTtlMs: number
+  /**
+   * The hub pings each browser connection this often (4 s). With two misses
+   * a silent tab is found 8 to 12 s after its last pong.
+   */
+  heartbeatMs: number
+  /** Unanswered pings before a browser connection counts as lost (2). */
+  heartbeatMisses: number
 }
 
 export interface DevHubOptions {
@@ -53,8 +60,13 @@ export interface DevHubOptions {
   /** Default one user, `u1` named `zahid`. */
   users?: DevUser[]
   timings?: Partial<DevHubTimings>
-  /** CLI requests per grant per second (§5.1: 5). */
+  /** CLI requests per grant per second on average (§5.1: 5). */
   ratePerSecond?: number
+  /**
+   * Requests a grant may spend at once (a token bucket). Default 20: a CLI
+   * loop runs about 16 calls a second, so 20 calls in a row stay under it.
+   */
+  rateBurst?: number
   /** Wrong codes per user per minute before `too-many-attempts`. */
   maxCodeAttempts?: number
   /** Approve every device code for the first user on its first poll. */
@@ -98,7 +110,9 @@ const defaults: DevHubTimings = {
   suspendMs: 60_000,
   requestTtlMs: 30_000,
   accessTtlMs: 60 * 60_000,
-  refreshTtlMs: 7 * 24 * 60 * 60_000
+  refreshTtlMs: 7 * 24 * 60 * 60_000,
+  heartbeatMs: 4_000,
+  heartbeatMisses: 2
 }
 
 const loopback = new Set(['127.0.0.1', '::1', 'localhost'])
@@ -180,6 +194,10 @@ interface Conn {
   userId: string
   grantId?: string
   pageId: string | null
+  /** Pings sent since the last pong (browser connections only). */
+  missed: number
+  /** The heartbeat counted this connection as lost; a pong brings it back. */
+  lost: boolean
 }
 
 class Refusal extends Error {
@@ -208,6 +226,7 @@ export async function startDevHub(
   const now = options.now ?? Date.now
   const log = options.log ?? (() => {})
   const ratePerSecond = options.ratePerSecond ?? 5
+  const rateBurst = options.rateBurst ?? Math.max(20, ratePerSecond)
   const maxCodeAttempts = options.maxCodeAttempts ?? 5
   const users = new Map(
     (options.users ?? [{ id: 'u1', name: 'zahid' }]).map(user => [
@@ -224,7 +243,8 @@ export async function startDevHub(
   const bindings = new Map<string, Binding>()
   const conns = new Set<Conn>()
   const cliByGrant = new Map<string, Conn>()
-  const rate = new Map<string, number[]>()
+  /** A token bucket per grant; only work that goes to the tab spends it. */
+  const rate = new Map<string, { tokens: number; at: number }>()
   const attempts = new Map<string, number[]>()
   /** The last binding of a grant, kept after it is gone for its reason. */
   const lastBinding = new Map<string, string>()
@@ -625,15 +645,21 @@ export async function startDevHub(
         return refuse('tab-unreachable', 'the bound tab is not connected')
       }
       if (kind === 'cli-request' || kind === 'help-request') {
-        const window = (rate.get(conn.grantId!) ?? []).filter(
-          t => now() - t < 1000
+        const t = now()
+        const bucket = rate.get(conn.grantId!) ?? { tokens: rateBurst, at: t }
+        bucket.tokens = Math.min(
+          rateBurst,
+          bucket.tokens + ((t - bucket.at) / 1000) * ratePerSecond
         )
-        if (window.length >= ratePerSecond) {
-          rate.set(conn.grantId!, window)
-          return refuse('busy', 'rate limit: at most 5 requests a second')
+        bucket.at = t
+        rate.set(conn.grantId!, bucket)
+        if (bucket.tokens < 1) {
+          return refuse(
+            'busy',
+            `rate limit: ${ratePerSecond} requests a second on average`
+          )
         }
-        window.push(now())
-        rate.set(conn.grantId!, window)
+        bucket.tokens -= 1
       }
       const stampedAt = now()
       const expiresAt = stampedAt + timings.requestTtlMs
@@ -660,6 +686,26 @@ export async function startDevHub(
         end(binding, 'detached')
       }
       return { ok: true }
+    }
+  }
+
+  /** The page of `conn` came back within the suspension time (§5.3). */
+  const resume = (conn: Conn) => {
+    const binding = [...bindings.values()].find(
+      b =>
+        b.pageId === conn.pageId &&
+        b.userId === conn.userId &&
+        (b.state === 'suspended' ||
+          (b.state === 'active' && b.browser !== conn))
+    )
+    if (binding) {
+      if (binding.suspendTimer) {
+        clearTimeout(binding.suspendTimer)
+        binding.suspendTimer = null
+      }
+      binding.browser = conn
+      binding.state = 'active'
+      announce(binding)
     }
   }
 
@@ -716,23 +762,7 @@ export async function startDevHub(
         }
       }
       conn.pageId = pageId
-      const binding = [...bindings.values()].find(
-        b =>
-          b.pageId === pageId &&
-          b.userId === conn.userId &&
-          (b.state === 'suspended' ||
-            (b.state === 'active' && b.browser !== conn))
-      )
-      if (binding) {
-        // The page came back within the suspension time (§5.3).
-        if (binding.suspendTimer) {
-          clearTimeout(binding.suspendTimer)
-          binding.suspendTimer = null
-        }
-        binding.browser = conn
-        binding.state = 'active'
-        announce(binding)
-      }
+      resume(conn)
       const live = bindingOfBrowser(conn)
       return {
         binding: live
@@ -955,7 +985,9 @@ export async function startDevHub(
         kind: 'cli',
         userId: grant.userId,
         grantId: grant.grantId,
-        pageId: null
+        pageId: null,
+        missed: 0,
+        lost: false
       }
       cliByGrant.set(grant.grantId, conn)
     } else {
@@ -969,10 +1001,46 @@ export async function startDevHub(
         socket,
         kind: 'browser',
         userId: user.id,
-        pageId: null
+        pageId: null,
+        missed: 0,
+        lost: false
       }
     }
     conns.add(conn)
+    // A browser connection can stay open after its network is gone; a
+    // heartbeat tells the hub, and the binding is suspended at once instead
+    // of every CLI call waiting for a delivery that never comes.
+    let heartbeat: NodeJS.Timeout | null = null
+    if (conn.kind === 'browser') {
+      // A pong or any frame says the page is there.
+      socket.on('message', () => socket.emit('pong'))
+      socket.on('pong', () => {
+        conn.missed = 0
+        if (conn.lost) {
+          conn.lost = false
+          log(`browser connection ${conn.id} answers again`)
+          resume(conn)
+        }
+      })
+      heartbeat = setInterval(() => {
+        if (conn.missed >= timings.heartbeatMisses && !conn.lost) {
+          conn.lost = true
+          log(`browser connection ${conn.id} lost: no pong`)
+          for (const binding of bindings.values()) {
+            if (binding.browser === conn) {
+              suspend(binding)
+            }
+          }
+        }
+        conn.missed += 1
+        try {
+          socket.ping()
+        } catch {
+          // A close follows.
+        }
+      }, timings.heartbeatMs)
+      heartbeat.unref()
+    }
     socket.on('message', data => {
       const frame = parseFrame(String(data))
       if (frame?.t === 'invoke') {
@@ -980,6 +1048,9 @@ export async function startDevHub(
       }
     })
     socket.on('close', () => {
+      if (heartbeat) {
+        clearInterval(heartbeat)
+      }
       conns.delete(conn)
       if (conn.kind === 'cli') {
         if (cliByGrant.get(conn.grantId!) === conn) {

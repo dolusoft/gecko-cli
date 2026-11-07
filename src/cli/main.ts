@@ -247,6 +247,9 @@ async function own(
         ...(process.env.GECKO_DEV_HUB_RATE
           ? { ratePerSecond: Number(process.env.GECKO_DEV_HUB_RATE) }
           : {}),
+        ...(process.env.GECKO_DEV_HUB_BURST
+          ? { rateBurst: Number(process.env.GECKO_DEV_HUB_BURST) }
+          : {}),
         ...(process.env.GECKO_DEV_HUB_USERS
           ? { users: JSON.parse(process.env.GECKO_DEV_HUB_USERS) as [] }
           : {}),

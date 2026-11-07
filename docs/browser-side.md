@@ -30,6 +30,7 @@ Açık bir sekmede `cli.attach <kod>` yazmak da aynı bağlamayı kurar (telefon
 - Adres: `ws(s)://<hub>/hub`. Tarayıcı başlık yollayamadığı için oturum token'ı sorgu dizesinde gider: `?access_token=<oturum>`. Geliştirme hub'ında oturum `dev:<kullanıcı>` biçimindedir (`dev:u1`).
 - CLI token'ı (`cli_…`) sorgu dizesinde gelirse hub bağlantıyı `4403` ile kapatır; CLI token'ı yalnız `Authorization` başlığıyla kabul edilir.
 - Hub bağlantı açılınca `ready` olayını yollar. Sekme ilk iş `hello` çağırır.
+- Hub her tarayıcı bağlantısına 4 sn'de bir WebSocket `ping` yollar. Arka arkaya iki `ping` cevapsız kalırsa (ağ kesildikten 8–12 sn sonra) bağlantı kopmuş sayılır ve bağlama `suspended` olur; bağlantı kapanmasa da CLI isteği hemen `tab-unreachable` alır. `pong` ya da herhangi bir çerçeve yeniden gelirse bağlama `active`'e döner; 60 sn askı kuralı aynıdır. Tarayıcı `pong`'u kendiliğinden yollar, sekmenin bir şey yapması gerekmez.
 
 ## Çerçeve (geliştirme taşıması)
 
@@ -134,7 +135,7 @@ Sekmenin kuralları:
 | Hâl         | Ne zaman                                                               | CLI'ya etkisi                                                 |
 | ----------- | ---------------------------------------------------------------------- | ------------------------------------------------------------- |
 | `active`    | sekmenin bağlantısı açık                                               | istek iletilir                                                |
-| `suspended` | sekmenin bağlantısı düştü, 60 sn askı                                  | istek hemen `tab-unreachable` (kod 4)                         |
+| `suspended` | sekmenin bağlantısı düştü ya da `ping`'e cevap yok, 60 sn askı         | istek hemen `tab-unreachable` (kod 4)                         |
 | `gone`      | askı doldu, `unload`, `detach`, ikinci bağlama, `logout`, yetki iptali | `gone` + `reason` (kod 4); CLI kendiliğinden yeni sekme açmaz |
 
 `reason` değerleri: `replaced`, `closed`, `detached`, `logged-out`, `revoked`, `suspended-timeout`.

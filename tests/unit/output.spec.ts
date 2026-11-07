@@ -86,6 +86,27 @@ describe('§6.1 JSON and text', () => {
     ).toBe('total: 2\nitems:\nid  n\n--  -\n1   x\n2')
   })
 
+  it('a columns + rows grid (dataview.rows) prints as a table', () => {
+    expect(
+      formatData({
+        total: 2,
+        columns: ['ip', 'port'],
+        rows: [
+          ['10.0.0.1', 22],
+          ['10.0.0.22', null]
+        ]
+      })
+    ).toBe(
+      'total: 2\nip         port\n---------  ----\n10.0.0.1   22\n10.0.0.22'
+    )
+  })
+
+  it('columns without rows of arrays stay key: value', () => {
+    expect(formatData({ columns: ['a'], rows: [{ a: 1 }] })).toBe(
+      'columns: ["a"]\nrows:\na\n-\n1'
+    )
+  })
+
   it('an object without rows prints key: value, never raw JSON', () => {
     expect(formatData({ ok: true, who: { id: 'u1' }, list: [] })).toBe(
       'ok: true\nwho: {"id":"u1"}\nlist: (boş)'

@@ -71,7 +71,12 @@ export interface DevHubOptions {
   maxCodeAttempts?: number
   /** Approve every device code for the first user on its first poll. */
   autoApprove?: boolean
-  /** The origin of the web app for the login and pairing addresses. */
+  /**
+   * The origin of the web app for the login and pairing addresses. Given, it
+   * is the one origin the browser may call the hub from; left out, any
+   * loopback origin may (`http://127.0.0.1:<port>`, `http://localhost:<port>`,
+   * `http://[::1]:<port>`), since a dev server runs on a port of its own.
+   */
   webOrigin?: string
   /** The hub's clock. Default `Date.now`. */
   now?: () => number
@@ -654,10 +659,14 @@ export async function startDevHub(
         bucket.at = t
         rate.set(conn.grantId!, bucket)
         if (bucket.tokens < 1) {
-          return refuse(
-            'busy',
-            `rate limit: ${ratePerSecond} requests a second on average`
-          )
+          // Not `busy` (one live call): the CLI waits this long and retries.
+          throw new Refusal({
+            code: 'rate-limited',
+            message: `rate limit: ${ratePerSecond} requests a second on average`,
+            retryAfterMs: Math.ceil(
+              ((1 - bucket.tokens) / ratePerSecond) * 1000
+            )
+          })
         }
         bucket.tokens -= 1
       }
@@ -918,10 +927,17 @@ export async function startDevHub(
 
   // --- connections -----------------------------------------------------------
 
+  /** The browser origins whose calls the hub answers (CORS). */
+  const allowsOrigin = (origin: string): boolean =>
+    options.webOrigin !== undefined
+      ? origin === options.webOrigin
+      : isLoopbackOrigin(origin)
+
   const server = createServer((request, response) => {
     // The browser page (`/cli-login`) calls the hub from the web origin.
-    if (webOrigin && request.headers.origin === webOrigin) {
-      response.setHeader('Access-Control-Allow-Origin', webOrigin)
+    const origin = request.headers.origin
+    if (origin !== undefined && allowsOrigin(origin)) {
+      response.setHeader('Access-Control-Allow-Origin', origin)
       response.setHeader(
         'Access-Control-Allow-Headers',
         'Authorization, Content-Type'
@@ -1083,6 +1099,11 @@ export async function startDevHub(
   const url = `http://${env}`
   webOrigin = options.webOrigin ?? url
   log(`dev hub listening on ${url}`)
+  log(
+    options.webOrigin === undefined
+      ? 'cors: loopback origins only (http://127.0.0.1:*, http://localhost:*, http://[::1]:*)'
+      : `cors: ${options.webOrigin} only`
+  )
 
   return {
     url,
@@ -1124,4 +1145,22 @@ export async function startDevHub(
       })
     }
   }
+}
+
+/**
+ * `http://127.0.0.1:<port>`, `http://localhost:<port>` or `http://[::1]:<port>`
+ * exactly: an origin with a path, credentials or another host is not one.
+ */
+export function isLoopbackOrigin(origin: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(origin)
+  } catch {
+    return false
+  }
+  return (
+    parsed.protocol === 'http:' &&
+    ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname) &&
+    parsed.origin === origin
+  )
 }

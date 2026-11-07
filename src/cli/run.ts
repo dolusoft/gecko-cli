@@ -18,6 +18,7 @@ import { closeCodes } from '../shared/wire.ts'
 import type { Transport } from '../transport/transport.ts'
 import type { Result } from './output.ts'
 import { errorResult, markUntrusted } from './output.ts'
+import { sendRetrying } from './retry.ts'
 import { goneMessage } from './session.ts'
 
 export interface Interrupts {
@@ -319,7 +320,9 @@ export async function runLine(options: RunOptions): Promise<Result> {
       lost('hub bağlantısı koptu')
     })
 
-    transport.send(envelope).then(
+    sendRetrying(transport, envelope, {
+      stopped: () => ended || interrupted
+    }).then(
       receipt => {
         if (ended) return
         // The window is the hub's (`expiresAt - stampedAt`), measured on
@@ -360,15 +363,17 @@ export async function runLine(options: RunOptions): Promise<Result> {
           if (error.code === 'no-binding') {
             return end(errorResult('no-binding', 'bağlama yok: gecko attach'))
           }
-          if (error.code === 'busy') {
+          if (error.code === 'rate-limited') {
+            // sendRetrying waited up to 5 s already.
             return end(
               errorResult(
                 'busy',
-                error.message.includes('rate')
-                  ? 'hız sınırı: yetki başına saniyede en çok 5 istek; biraz sonra yeniden deneyin'
-                  : 'terminal meşgul; yeniden deneyin'
+                'hız sınırı: yetki başına saniyede en çok 5 istek; biraz sonra yeniden deneyin'
               )
             )
+          }
+          if (error.code === 'busy') {
+            return end(errorResult('busy', 'terminal meşgul; yeniden deneyin'))
           }
           if (error.code === 'connection-lost') {
             return lost('hub bağlantısı koptu')

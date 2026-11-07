@@ -237,4 +237,44 @@ describe('the browser page reaches the hub (CORS)', () => {
     })
     expect(other.headers.get('access-control-allow-origin')).toBeNull()
   })
+
+  const preflight = (url: string, origin: string) =>
+    fetch(`${url}/oauth/device/verify`, {
+      method: 'OPTIONS',
+      headers: { Origin: origin, 'Access-Control-Request-Method': 'POST' }
+    }).then(r => r.headers.get('access-control-allow-origin'))
+
+  it('without --web, any loopback origin (a dev server on its own port) and nothing else', async () => {
+    for (const origin of [
+      'http://127.0.0.1:5186',
+      'http://localhost:5186',
+      'http://[::1]:5186'
+    ]) {
+      expect(await preflight(hub.url, origin)).toBe(origin)
+    }
+    for (const origin of [
+      'https://127.0.0.1:5186',
+      'http://127.0.0.2:5186',
+      'http://localhost.evil.example:5186',
+      'http://192.168.1.10:5186',
+      'null'
+    ]) {
+      expect(await preflight(hub.url, origin)).toBeNull()
+    }
+    expect(hub.stderr()).toMatch(/cors: loopback origins only/)
+  })
+
+  it('with --web, that one origin only', async () => {
+    const web = await startHub({}, ['--web', 'http://localhost:5186'])
+    try {
+      expect(await preflight(web.url, 'http://localhost:5186')).toBe(
+        'http://localhost:5186'
+      )
+      expect(await preflight(web.url, 'http://127.0.0.1:5186')).toBeNull()
+      expect(await preflight(web.url, new URL(web.url).origin)).toBeNull()
+      expect(web.stderr()).toMatch(/cors: http:\/\/localhost:5186 only/)
+    } finally {
+      await web.stop()
+    }
+  })
 })

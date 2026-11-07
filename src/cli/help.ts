@@ -14,6 +14,7 @@ import type { Transport } from '../transport/transport.ts'
 import { ownOption } from './args.ts'
 import type { Result } from './output.ts'
 import { errorResult, markUntrusted } from './output.ts'
+import { sendRetrying } from './retry.ts'
 import { commandOf } from './run.ts'
 import { goneMessage } from './session.ts'
 
@@ -47,6 +48,31 @@ export function helpInput(
     input.limit = Number(limit)
   }
   return input
+}
+
+/**
+ * `gecko help nope.nope`: a full command name (`namespace.name`) that is no
+ * command of the list and starts no namespace in it is an unknown command,
+ * as `gecko nope.nope` is (code 2), not an empty page. A bare word (`nope`,
+ * `tasks.`) stays a prefix for the tab.
+ */
+export function unknownHelpTarget(
+  capabilities: CapabilitiesReply,
+  input: HelpInput
+): Result | undefined {
+  const target = input.prefix
+  if (target === undefined || !/^[^.]+\.[^.]/.test(target)) return undefined
+  const known = [
+    ...capabilities.commands.map(spec => spec.name),
+    ...capabilities.sensitive
+  ]
+  if (known.some(name => name === target || name.startsWith(`${target}.`))) {
+    return undefined
+  }
+  return errorResult(
+    'unknown-command',
+    `bilinmeyen komut: ${target}. Komutlar için: gecko help`
+  )
 }
 
 /** The tab's help output as a CLI result. */
@@ -129,7 +155,11 @@ export function requestHelp(options: HelpOptions): Promise<Result> {
         )
       )
     )
-    transport.send({ v: 1, kind: 'help-request', id, input }).then(
+    sendRetrying(
+      transport,
+      { v: 1, kind: 'help-request', id, input },
+      { stopped: () => ended }
+    ).then(
       receipt => {
         if (ended) return
         timer = setTimeout(
@@ -157,6 +187,14 @@ export function requestHelp(options: HelpOptions): Promise<Result> {
               errorResult(
                 'tab-unreachable',
                 'bağlı sekmeye şu an ulaşılamıyor (bağlantısı düştü); 60 sn içinde dönerse bağlama sürer'
+              )
+            )
+          }
+          if (error.code === 'rate-limited') {
+            return end(
+              errorResult(
+                'busy',
+                'hız sınırı: yetki başına saniyede en çok 5 istek; biraz sonra yeniden deneyin'
               )
             )
           }

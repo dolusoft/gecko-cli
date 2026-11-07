@@ -218,3 +218,23 @@ describe('§8 device login', () => {
     expect(JSON.parse(done.stdout)).toMatchObject({ code: 'revoked' })
   })
 })
+
+describe('the browser page reaches the hub (CORS)', () => {
+  it('answers the preflight from the web origin and not from another one', async () => {
+    const origin = new URL(hub.url).origin
+    const ok = await fetch(`${hub.url}/oauth/device/verify`, {
+      method: 'OPTIONS',
+      headers: { Origin: origin, 'Access-Control-Request-Method': 'POST' }
+    })
+    expect(ok.status).toBe(204)
+    expect(ok.headers.get('access-control-allow-origin')).toBe(origin)
+    const other = await fetch(`${hub.url}/oauth/device/verify`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'http://evil.example',
+        'Access-Control-Request-Method': 'POST'
+      }
+    })
+    expect(other.headers.get('access-control-allow-origin')).toBeNull()
+  })
+})

@@ -1,14 +1,15 @@
 // `gecko`: the remote control of the Gecko web terminal (desktop CLI
-// specification). Its own commands are login, logout, attach, detach, help
-// and dev-hub; every other line goes to the bound tab.
+// specification). Its own commands are login, logout, attach, detach, help,
+// status and dev-hub; every other line goes to the bound tab.
 
 import { readFileSync, writeFileSync } from 'node:fs'
 
+import type { CapabilitiesReply } from '@dolusoft/command-protocol'
 import { tokenize } from '@dolusoft/command-protocol'
 
 import type { OwnCommand, Parsed } from './args.ts'
 import { ownOption, parseArgs } from './args.ts'
-import { CliFailure, deviceLogin, resolveEnv, revokeToken } from './auth.ts'
+import { deviceLogin, resolveEnv, revokeToken } from './auth.ts'
 import { openBrowser } from './browser.ts'
 import { helpInput, requestHelp, unknownHelpTarget } from './help.ts'
 import { deleteToken, readToken, writeDefaultEnv } from './config.ts'
@@ -23,17 +24,19 @@ import {
   plainText,
   write
 } from './output.ts'
-import type { Interrupts } from './run.ts'
-import { runLine } from './run.ts'
+import type { Interrupts, RunIo } from './run.ts'
+import { commandOf, runLine } from './run.ts'
 import type { Session } from './session.ts'
 import {
   capabilities,
   envOf,
-  goneMessage,
   openSession,
   pair,
-  toFailure
+  toFailure,
+  withBinding
 } from './session.ts'
+import { gatherStatus, statusResult, whereIs } from './status.ts'
+import { positionalFix } from './suggest.ts'
 
 const usage = `gecko: Gecko web terminalinin uzaktan kumandası
 
@@ -48,6 +51,7 @@ Kendi komutları:
   attach [--new]          bir Gecko sekmesine bağlanır (tarayıcıda onay)
   detach                  bağlamayı keser
   help [ad alanı|komut]   bağlı sekmenin komutları (izne göre, sayfalı)
+  status                  giriş, bağlı sekme ve hub durumu
   dev-hub [--port <n>] [--web <köken>] [--auto-approve]
                           geliştirme hub'ını başlatır (yalnız localhost)
 
@@ -89,6 +93,12 @@ Bağlamayı keser.
 Bağlı sekmenin komutları, izninize göre süzülmüş ve sayfalı. Komut adı
 verilirse kullanımı ve girdisi; ad alanı verilirse (tasks) yalnız onun
 komutları. --cursor önceki sayfanın sonunda yazan değerle devam eder.
+`,
+  status: `Kullanım: gecko status
+
+Giriş, bağlı sekme ve hub durumu. Bağlama başlatmaz. Bağlı sekmeye
+nav.where sorulur (en çok 2 sn); sekme geçmişinde bir satır kalır.
+Kod 0; giriş yoksa 6, hub'a ulaşılamıyorsa 4.
 `,
   'dev-hub': `Kullanım: gecko dev-hub [--port <n>] [--web <köken>] [--auto-approve] [--interval <sn>]
 
@@ -134,11 +144,56 @@ class SigintInterrupts implements Interrupts {
   }
 }
 
-const io = {
+/**
+ * Whether a stream is a terminal. Test hook: `GECKO_TEST_TTY=1` makes the
+ * contract specs' pipes count as one (UX U2, U3).
+ */
+function interactive(stream: { isTTY?: boolean }): boolean {
+  return Boolean(stream.isTTY) || process.env.GECKO_TEST_TTY === '1'
+}
+
+/**
+ * Pairing starts on its own only for a person at a terminal (UX U2): stdin
+ * and stderr are TTYs, no `--json`, no `--line`. Never a proof of a person:
+ * the approval stays in the browser.
+ */
+function mayAutoPair(options: Parsed['options']): boolean {
+  return (
+    interactive(process.stdin) &&
+    interactive(process.stderr) &&
+    !options.json &&
+    options.line === undefined
+  )
+}
+
+let progressShown = false
+const clearLine = '\r\u001b[2K'
+
+const io: RunIo = {
   info(text: string) {
+    io.clearProgress?.()
     process.stderr.write(
       `${paint(process.stderr, 'info', escapeControls(text))}\n`
     )
+  },
+  clearProgress() {
+    if (!progressShown) return
+    progressShown = false
+    process.stderr.write(clearLine)
+  }
+}
+
+/** The io of a line: with the wait indicator on a TTY without `--json`. */
+function lineIo(options: Parsed['options']): RunIo {
+  if (options.json || !interactive(process.stderr)) return io
+  return {
+    ...io,
+    progress(text: string) {
+      progressShown = true
+      process.stderr.write(
+        `${clearLine}${paint(process.stderr, 'info', escapeControls(text))}`
+      )
+    }
   }
 }
 
@@ -156,7 +211,7 @@ async function emit(
       ? process.stdout.columns
       : undefined
   const text = options.json
-    ? `${asciiJson(result)}\n`
+    ? `${asciiJson(result.status === 'ok' ? result : { ...result, exitCode: code })}\n`
     : plainText(result, columns ? { columns, ...extra } : extra)
   if (options.out !== undefined) {
     writeFileSync(options.out, text, 'utf8')
@@ -198,30 +253,41 @@ async function readStdin(): Promise<string> {
 
 async function sessionWithBinding(
   parsed: Parsed,
-  interrupts: SigintInterrupts,
-  allowPair: boolean
+  interrupts: SigintInterrupts
 ) {
+  const autoPair = mayAutoPair(parsed.options)
   const session = await openSession(parsed.options.env)
-  let binding = session.status.binding
-  if (binding?.state === 'suspended') {
-    throw new CliFailure(
-      'tab-unreachable',
-      'bağlı sekmeye şu an ulaşılamıyor (bağlantısı düştü); 60 sn içinde dönerse bağlama sürer'
-    )
-  }
-  if (binding?.state === 'gone') {
-    // No new tab on its own (§5.3): the CLI says why and offers attach.
-    throw new CliFailure('gone', goneMessage(binding.reason), binding.reason)
-  }
-  if (!binding) {
-    if (!allowPair) {
-      throw new CliFailure('no-binding', 'bağlama yok: gecko attach')
-    }
-    binding = await pair(session, io, { open: true, signal: interrupts.signal })
-    io.info('Bağlandı.')
-  }
-  const caps = await capabilities(session, binding, capabilitiesWaitMs())
+  const { binding, caps } = await withBinding(session, {
+    autoPair,
+    onAutoPair: () =>
+      io.info(
+        'Bağlı sekme yok; tarayıcıda bağlama sayfasını açıyorum (Ctrl+C ile vazgeç)'
+      ),
+    pair: async () => {
+      const bound = await pair(session, io, {
+        open: true,
+        signal: interrupts.signal
+      })
+      io.info('Bağlandı.')
+      return bound
+    },
+    capabilities: bound => capabilities(session, bound, capabilitiesWaitMs())
+  })
   return { session, binding, caps }
+}
+
+/** "Bağlandı: "Ağ Trafiği" · /path" from `nav.where`; the page id without it. */
+async function tabName(
+  session: Session,
+  caps: CapabilitiesReply,
+  interrupts: SigintInterrupts
+): Promise<string | undefined> {
+  const where = await whereIs(session, caps, interrupts)
+  if (where === undefined || where === 'no-answer') return undefined
+  if (!where.title && !where.path) return undefined
+  return [where.title ? `"${where.title}"` : '', where.path ?? '']
+    .filter(Boolean)
+    .join(' · ')
 }
 
 async function own(
@@ -318,10 +384,15 @@ async function own(
         const current = session.status.binding
         const fresh = ownOption(parsed.args, 'new') === true
         if (current?.state === 'active' && !fresh) {
-          await capabilities(session, current, capabilitiesWaitMs())
+          const caps = await capabilities(
+            session,
+            current,
+            capabilitiesWaitMs()
+          )
+          const name = await tabName(session, caps, interrupts)
           return emit(
             done(
-              `Zaten bağlı (sayfa ${current.pageId}). Yeni sekme için: gecko attach --new`
+              `Zaten bağlı: ${name ?? `sayfa ${current.pageId}`}. Yeni sekme için: gecko attach --new`
             ),
             options
           )
@@ -330,8 +401,13 @@ async function own(
           open: true,
           signal: interrupts.signal
         })
-        await capabilities(session, binding, capabilitiesWaitMs())
-        return emit(done(`Bağlandı (sayfa ${binding.pageId})`), options)
+        const caps = await capabilities(session, binding, capabilitiesWaitMs())
+        // The tab's title and path say more than its page id (UX U9, §1).
+        const name = await tabName(session, caps, interrupts)
+        return emit(
+          done(`Bağlandı: ${name ?? `sayfa ${binding.pageId}`}`),
+          options
+        )
       } finally {
         await close(session)
       }
@@ -339,18 +415,27 @@ async function own(
     case 'detach': {
       const session = await openSession(options.env)
       try {
+        const current = session.status.binding
+        if (!current || current.state === 'gone') {
+          // The hub says ok either way; the CLI says what was there (UX U9).
+          return emit(done('Bağlama yoktu'), options)
+        }
         await session.transport.detach()
         return emit(done('Bağlama kesildi'), options)
       } finally {
         await close(session)
       }
     }
-    case 'help': {
-      const { session, caps } = await sessionWithBinding(
-        parsed,
+    case 'status': {
+      const data = await gatherStatus(
+        options.env,
         interrupts,
-        true
+        capabilitiesWaitMs()
       )
+      return emit(statusResult(data, options.json), options)
+    }
+    case 'help': {
+      const { session, caps } = await sessionWithBinding(parsed, interrupts)
       try {
         const input = helpInput(caps, parsed.args)
         const unknown = unknownHelpTarget(caps, input)
@@ -384,14 +469,14 @@ async function lineCommand(
   line: string,
   interrupts: SigintInterrupts
 ): Promise<number> {
-  const { session, caps } = await sessionWithBinding(parsed, interrupts, true)
+  const { session, caps } = await sessionWithBinding(parsed, interrupts)
   try {
-    const result = await runLine({
+    let result = await runLine({
       transport: session.transport,
       capabilities: caps,
       line,
       view: parsed.options.view,
-      io,
+      io: lineIo(parsed.options),
       interrupts,
       marginMs: process.env.GECKO_DELIVERY_MARGIN_MS
         ? Number(process.env.GECKO_DELIVERY_MARGIN_MS)
@@ -400,6 +485,9 @@ async function lineCommand(
         ? Number(process.env.GECKO_CANCEL_WAIT_MS)
         : undefined
     })
+    if (result.code === 'invalid-args') {
+      result = await withUsageHint(session, caps, line, result)
+    }
     if (result.view?.title && !parsed.options.json) {
       io.info(`Görünüm: ${result.view.title}`)
     }
@@ -407,6 +495,43 @@ async function lineCommand(
   } finally {
     await close(session)
   }
+}
+
+/**
+ * `invalid-args` (UX U5): "kullanım: gecko help <komut>", and when the
+ * line has bare words and the command one required string field, the line
+ * that field would take, as a suggestion only. The schema is one more
+ * request, on the error path only.
+ */
+async function withUsageHint(
+  session: Session,
+  caps: CapabilitiesReply,
+  line: string,
+  result: Result
+): Promise<Result> {
+  const name = tokenize(line).tokens[0]?.value ?? ''
+  const spec = commandOf(caps, name)
+  if (!spec) return result
+  let message = `${result.message ?? 'geçersiz argümanlar'} · kullanım: gecko help ${spec.name}`
+  let suggest = result.suggest
+  const rest = tokenize(line).tokens.slice(1)
+  if (rest.length === 0 || rest.some(token => token.value.startsWith('-'))) {
+    return { ...result, message }
+  }
+  const help = await requestHelp({
+    transport: session.transport,
+    input: { command: spec.name }
+  }).catch(() => undefined)
+  const input =
+    help?.status === 'ok' && typeof help.data === 'object' && help.data !== null
+      ? (help.data as { input?: unknown }).input
+      : undefined
+  const fixed = positionalFix(line, input)
+  if (fixed !== undefined) {
+    message += ` · şunu mu demek istediniz: gecko ${fixed}`
+    suggest = fixed
+  }
+  return { ...result, message, ...(suggest !== undefined ? { suggest } : {}) }
 }
 
 async function version(): Promise<string> {
@@ -436,6 +561,16 @@ export async function main(argv: readonly string[]): Promise<number> {
     }
     const interrupts = new SigintInterrupts()
     if (parsed.kind === 'own') {
+      if (parsed.command === 'help' && !hasLogin(options.env) && options.json) {
+        // An agent reads JSON: no usage text, an identity error (UX U9).
+        return emit(
+          errorResult(
+            'not-logged-in',
+            'giriş yok: önce gecko login --env <ortam>'
+          ),
+          options
+        )
+      }
       if (parsed.command === 'help' && !hasLogin(options.env)) {
         // Without a login there is no tab to ask: the CLI's own usage.
         await write(process.stdout, usage)

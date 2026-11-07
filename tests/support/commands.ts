@@ -110,6 +110,55 @@ export function commands(probe: Probe): CommandDefinition[] {
       }
     },
     {
+      // UX U4 and U6: a tasks.* read with two UUID columns and an empty one.
+      name: 'tasks.list',
+      danger: 'read',
+      input: none,
+      run: () => ({
+        summary: '2 görev',
+        data: [
+          {
+            id: '6f1c2a9e-3b7d-4c55-9a10-2d4e8f7b1c03',
+            workId: 'b2d47e10-8c3a-4f9b-a6e2-71c0d5e9f348',
+            name: 'export',
+            percent: null,
+            runningMs: 454558943
+          },
+          {
+            id: '0a9e4b21-5d6c-4e87-b3f0-9c2a1d7e6b54',
+            workId: 'e5c13f88-2a4b-49d0-8e71-3f6b0c9a2d17',
+            name: 'reindex',
+            percent: null,
+            runningMs: 61000
+          }
+        ]
+      })
+    },
+    {
+      // UX U1 and U9: where the tab is.
+      name: 'nav.where',
+      danger: 'read',
+      input: none,
+      run: () => ({
+        summary: '/dashboards/default/Defaults/network-traffic',
+        data: {
+          path: '/dashboards/default/Defaults/network-traffic',
+          title: 'Ağ Trafiği'
+        }
+      })
+    },
+    {
+      // UX U5: one required string field.
+      name: 'nav.find',
+      danger: 'read',
+      input: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text']
+      },
+      run: request => ({ summary: `bulundu: ${String(request.input?.text)}` })
+    },
+    {
       name: 'cli.secret',
       sensitive: true,
       run: () => ({ summary: 'never' })

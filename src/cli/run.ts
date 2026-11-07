@@ -11,7 +11,12 @@ import type {
   FinishedReply,
   RemoteCommandSpec
 } from '@dolusoft/command-protocol'
-import { isCliReply, joinChunks, tokenize } from '@dolusoft/command-protocol'
+import {
+  isCliReply,
+  joinChunks,
+  quoteArgument,
+  tokenize
+} from '@dolusoft/command-protocol'
 
 import { HubError } from '../shared/rpc.ts'
 import { closeCodes } from '../shared/wire.ts'
@@ -20,6 +25,7 @@ import type { Result } from './output.ts'
 import { errorResult, markUntrusted } from './output.ts'
 import { sendRetrying } from './retry.ts'
 import { goneMessage } from './session.ts'
+import { unknownCommandMessage } from './suggest.ts'
 
 export interface Interrupts {
   /** Called on the first Ctrl+C; the second ends the wait. */
@@ -28,6 +34,28 @@ export interface Interrupts {
 
 export interface RunIo {
   info(text: string): void
+  /**
+   * The one-line wait indicator (UX U3); rewritten in place. Absent when
+   * stderr is no TTY or `--json` is on: nothing is printed then.
+   */
+  progress?(text: string): void
+  /** Removes the indicator line, if one is shown. */
+  clearProgress?(): void
+}
+
+/** After this long a call shows the wait indicator (UX U3). */
+export const progressAfterMs = 700
+
+/** "1,2 sn": seconds with one decimal, Turkish style. */
+export function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1).replace('.', ',')} sn`
+}
+
+/** "~2 dk", "~45 sn": the approximate time left of an approval. */
+export function approxLeft(ms: number): string {
+  const left = Math.max(0, ms)
+  if (left >= 60_000) return `~${Math.round(left / 60_000)} dk`
+  return `~${Math.ceil(left / 1000)} sn`
 }
 
 export interface RunOptions {
@@ -41,6 +69,8 @@ export interface RunOptions {
   marginMs?: number
   /** How long a cancel answer is awaited (§6.6: 3 s). */
   cancelWaitMs?: number
+  /** Gives up after this long with `timeout` (`gecko status`: 2 s). */
+  deadlineMs?: number
 }
 
 /** The command a line names, by name or alias. */
@@ -96,12 +126,18 @@ export function precheck(capabilities: CapabilitiesReply, line: string): Check {
   const spec = commandOf(capabilities, name)
   // `help` is the tab's: its permission filter and paging decide (§4).
   if (!spec && name !== 'help') {
+    const { message, near } = unknownCommandMessage(capabilities, name)
     return {
       ok: false,
-      result: errorResult(
-        'unknown-command',
-        `bilinmeyen komut: ${name}. Komutlar için: gecko help`
-      )
+      result: errorResult('unknown-command', message, {
+        ...(near.length > 0
+          ? {
+              suggest: [near[0], ...tokens.slice(1)]
+                .map(quoteArgument)
+                .join(' ')
+            }
+          : {})
+      })
     }
   }
   const change =
@@ -141,14 +177,42 @@ export async function runLine(options: RunOptions): Promise<Result> {
     let interrupted = false
     const cleanups: (() => void)[] = []
 
+    // The wait indicator (UX U3): one line from 700 ms on, gone at the end.
+    let approvalExpiresAt: number | null = null
+    const indicate = () => {
+      if (ended || interrupted) return
+      if (approvalExpiresAt !== null) {
+        io.progress?.(
+          `Onay bekleniyor (${approxLeft(approvalExpiresAt - Date.now())}): tarayıcıdaki Gecko sekmesinde onaylayın`
+        )
+        return
+      }
+      if (Date.now() - started < progressAfterMs) return
+      io.progress?.(
+        `${received ? 'sekmede çalışıyor' : 'sekmeye ulaşılıyor'}… ${seconds(Date.now() - started)}`
+      )
+    }
+    const ticker = io.progress ? setInterval(indicate, 100) : null
+    ticker?.unref()
+
     const end = (result: Result) => {
       if (ended) return
       ended = true
       if (deliveryTimer) clearTimeout(deliveryTimer)
       if (cancelTimer) clearTimeout(cancelTimer)
+      if (deadlineTimer) clearTimeout(deadlineTimer)
+      if (ticker) clearInterval(ticker)
+      io.clearProgress?.()
       for (const cleanup of cleanups) cleanup()
       resolve({ ...result, durationMs: Date.now() - started })
     }
+    const deadlineTimer =
+      options.deadlineMs !== undefined
+        ? setTimeout(
+            () => end(errorResult('timeout', 'sekme zamanında cevap vermedi')),
+            options.deadlineMs
+          )
+        : null
 
     const lost = (why: string) => {
       if (interrupted) {
@@ -264,18 +328,32 @@ export async function runLine(options: RunOptions): Promise<Result> {
             received = raw
             if (deliveryTimer) clearTimeout(deliveryTimer)
             if (raw.hidden) {
+              // `dataAgeMs` is the age of the task snapshot whatever ran
+              // (UX U4): only a `tasks.*` line gets the staleness part.
+              const tasks = check.spec?.name.startsWith('tasks.') === true
+              io.clearProgress?.()
               io.info(
-                raw.dataAgeMs === null
-                  ? 'sekme arka planda; verinin yaşı bilinmiyor'
-                  : `sekme arka planda, liste ${Math.round(raw.dataAgeMs / 1000)} sn eski`
+                tasks && typeof raw.dataAgeMs === 'number'
+                  ? `sekme arka planda, liste ${Math.round(raw.dataAgeMs / 1000)} sn eski`
+                  : 'sekme arka planda'
               )
             }
             break
-          case 'awaiting-approval':
+          case 'awaiting-approval': {
             approving = true
             change = true
-            io.info('Onay bekleniyor: tarayıcıdaki Gecko sekmesinde onaylayın.')
+            // The tab's clock: the time left is approximate (UX U3).
+            // On a TTY the indicator line counts it down instead.
+            approvalExpiresAt = raw.expiresAt
+            if (io.progress) {
+              indicate()
+            } else {
+              io.info(
+                `Onay bekleniyor (${approxLeft(raw.expiresAt - Date.now())}): tarayıcıdaki Gecko sekmesinde onaylayın.`
+              )
+            }
             break
+          }
           case 'chunk':
             chunks.push(raw)
             break
@@ -303,6 +381,7 @@ export async function runLine(options: RunOptions): Promise<Result> {
           return end(cancelled('unknown'))
         }
         interrupted = true
+        io.clearProgress?.()
         transport
           .send({ v: 1, kind: 'cancel', id })
           .catch(() => end(cancelled('unknown')))

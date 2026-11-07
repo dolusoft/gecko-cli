@@ -74,8 +74,61 @@ export async function openSession(given: string | undefined): Promise<Session> {
       throw toFailure(again)
     }
   }
-  const status = await transport.status()
+  let status: HubStatus
+  try {
+    status = await transport.status()
+  } catch (error) {
+    await transport.close().catch(() => {})
+    throw toFailure(error)
+  }
   return { env, token, transport, status }
+}
+
+export interface BindingSteps {
+  /** Whether a missing binding starts pairing (UX U2: a person at a TTY). */
+  autoPair: boolean
+  pair(): Promise<BindingInfo>
+  capabilities(binding: BindingInfo): Promise<CapabilitiesReply>
+  /** Said before pairing starts on its own. */
+  onAutoPair?(): void
+}
+
+/**
+ * The session's binding and its capability list. Every error path closes
+ * the connection before it throws (UX U9): no path leaves it to the exit.
+ */
+export async function withBinding(
+  session: Session,
+  steps: BindingSteps
+): Promise<{ binding: BindingInfo; caps: CapabilitiesReply }> {
+  try {
+    let binding = session.status.binding
+    if (binding?.state === 'suspended') {
+      throw new CliFailure(
+        'tab-unreachable',
+        'bağlı sekmeye şu an ulaşılamıyor (bağlantısı düştü); 60 sn içinde dönerse bağlama sürer'
+      )
+    }
+    if (binding?.state === 'gone') {
+      // No new tab on its own (§5.3): the CLI says why and offers attach.
+      throw new CliFailure('gone', goneMessage(binding.reason), binding.reason)
+    }
+    if (!binding) {
+      if (!steps.autoPair) {
+        throw new CliFailure(
+          'no-binding',
+          'bağlı sekme yok; bağlamak için: gecko attach'
+        )
+      }
+      steps.onAutoPair?.()
+      binding = await steps.pair()
+    }
+    const caps = await steps.capabilities(binding)
+    return { binding, caps }
+  } catch (error) {
+    await session.transport.close().catch(() => {})
+    throw error
+  }
 }
 
 export function toFailure(error: unknown): CliFailure {

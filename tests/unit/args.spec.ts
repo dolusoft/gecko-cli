@@ -5,10 +5,13 @@ import { ownOption, parseArgs, toLine } from '../../src/cli/args.ts'
 
 describe('parseArgs (§10.1)', () => {
   it('reads the own options before the command name only', () => {
-    expect(parseArgs(['--json', '--env', 'x.y', 'search', '--json'])).toEqual({
+    // After a flag, `--json` is that flag's value; alone it is misplaced (UX U5).
+    expect(
+      parseArgs(['--json', '--env', 'x.y', 'search', '--q', '--json'])
+    ).toEqual({
       kind: 'line',
       options: { json: true, env: 'x.y', version: false },
-      line: 'search --json'
+      line: 'search --q --json'
     })
   })
 

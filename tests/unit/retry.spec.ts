@@ -6,7 +6,9 @@ import type { Transport } from '../../src/transport/transport.ts'
 
 const receipt = { stampedAt: 1, expiresAt: 2 }
 
-function transportOf(answers: (HubError | null)[]): Transport & { sent: number } {
+function transportOf(
+  answers: (HubError | null)[]
+): Transport & { sent: number } {
   const t = {
     sent: 0,
     send: () => {
@@ -29,9 +31,11 @@ describe('sendRetrying', () => {
 
   it('gives up past the total wait', async () => {
     const t = transportOf([limited(60), limited(60), null])
-    await expect(sendRetrying(t, {}, { maxWaitMs: 100 })).rejects.toMatchObject({
-      code: 'rate-limited'
-    })
+    await expect(sendRetrying(t, {}, { maxWaitMs: 100 })).rejects.toMatchObject(
+      {
+        code: 'rate-limited'
+      }
+    )
     expect(t.sent).toBe(2)
   })
 

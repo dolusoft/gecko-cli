@@ -11,6 +11,9 @@
 - Düz metin `gecko help <komut>` `input` şemasını kesmeden basar: alan başına bir satır (tip, zorunlu, enum/min/max/maxItems), açıklama terminal genişliğinde kaydırılır.
 - `gecko help` listesi ve `gecko --help` altında "CLI seçenekleri komut adından önce gelir" notu.
 - `nextCursor` dönen sonuçlarda düz metin sonuna `devamı: gecko <satır> --cursor N`.
+- `gecko dev-hub` `--web` verilmeden başlatılınca loopback kökenlere (`http://127.0.0.1:*`, `http://localhost:*`, `http://[::1]:*`) CORS izni verir; `--web` ile yalnız o köken. Başlangıçta `cors:` satırı izinli kökenleri yazar.
+- Hız sınırı reddi `busy` değil `rate-limited` (`retryAfterMs` ile); CLI bu süre kadar bekleyip yeniden dener, toplamda en çok 5 sn. Tek canlı bağlantı `busy`'si yeniden denenmez.
+- `gecko help nope.nope` (listede olmayan `ad.ad`) kod 2 `unknown-command`; `--line "help …"` ya da stdin'den gelen `help` satırı da sekmenin `help` komutuna değil `help-request` yoluna gider.
 
 ### Spec'ten sapmalar
 

@@ -4,11 +4,13 @@
 
 import { readFileSync, writeFileSync } from 'node:fs'
 
+import { tokenize } from '@dolusoft/command-protocol'
+
 import type { OwnCommand, Parsed } from './args.ts'
 import { ownOption, parseArgs } from './args.ts'
 import { CliFailure, deviceLogin, resolveEnv, revokeToken } from './auth.ts'
 import { openBrowser } from './browser.ts'
-import { helpInput, requestHelp } from './help.ts'
+import { helpInput, requestHelp, unknownHelpTarget } from './help.ts'
 import { deleteToken, readToken, writeDefaultEnv } from './config.ts'
 import type { FormatOptions, Result } from './output.ts'
 import {
@@ -350,9 +352,12 @@ async function own(
         true
       )
       try {
+        const input = helpInput(caps, parsed.args)
+        const unknown = unknownHelpTarget(caps, input)
+        if (unknown) return await emit(unknown, options)
         const result = await requestHelp({
           transport: session.transport,
-          input: helpInput(caps, parsed.args),
+          input,
           marginMs: process.env.GECKO_DELIVERY_MARGIN_MS
             ? Number(process.env.GECKO_DELIVERY_MARGIN_MS)
             : undefined
@@ -440,6 +445,16 @@ export async function main(argv: readonly string[]): Promise<number> {
       return await own(parsed.command, parsed, interrupts)
     }
     const line = parsed.line === '-' ? await readStdin() : parsed.line
+    // The tab's `help` command is not open to the CLI (not-allowed): a
+    // `help …` line takes the help-request path, as `gecko help …` does.
+    const tokens = tokenize(line).tokens.map(token => token.value)
+    if (tokens[0] === 'help') {
+      return await own(
+        'help',
+        { kind: 'own', command: 'help', options, args: tokens.slice(1) },
+        interrupts
+      )
+    }
     return await lineCommand(parsed, line, interrupts)
   } catch (error) {
     const result = failureResult(error)

@@ -50,6 +50,31 @@ export function helpInput(
   return input
 }
 
+/**
+ * `gecko help nope.nope`: a full command name (`namespace.name`) that is no
+ * command of the list and starts no namespace in it is an unknown command,
+ * as `gecko nope.nope` is (code 2), not an empty page. A bare word (`nope`,
+ * `tasks.`) stays a prefix for the tab.
+ */
+export function unknownHelpTarget(
+  capabilities: CapabilitiesReply,
+  input: HelpInput
+): Result | undefined {
+  const target = input.prefix
+  if (target === undefined || !/^[^.]+\.[^.]/.test(target)) return undefined
+  const known = [
+    ...capabilities.commands.map(spec => spec.name),
+    ...capabilities.sensitive
+  ]
+  if (known.some(name => name === target || name.startsWith(`${target}.`))) {
+    return undefined
+  }
+  return errorResult(
+    'unknown-command',
+    `bilinmeyen komut: ${target}. Komutlar için: gecko help`
+  )
+}
+
 /** The tab's help output as a CLI result. */
 export function helpResult(input: HelpInput, output: unknown): Result {
   if (typeof output !== 'object' || output === null) {

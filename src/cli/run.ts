@@ -320,7 +320,9 @@ export async function runLine(options: RunOptions): Promise<Result> {
       lost('hub bağlantısı koptu')
     })
 
-    sendRetrying(transport, envelope, { stopped: () => ended || interrupted }).then(
+    sendRetrying(transport, envelope, {
+      stopped: () => ended || interrupted
+    }).then(
       receipt => {
         if (ended) return
         // The window is the hub's (`expiresAt - stampedAt`), measured on

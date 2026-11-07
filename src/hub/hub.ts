@@ -983,6 +983,14 @@ export async function startDevHub(
         socket.close(closeCodes.unauthorized, 'token')
         return
       }
+      const held = cliByGrant.get(grant.grantId)
+      if (held && held.socket.readyState !== held.socket.OPEN) {
+        // The previous call has already closed: its close frame is in, but
+        // the socket's `close` event may lag (notably on Windows). A closing
+        // connection no longer holds the grant.
+        cliByGrant.delete(grant.grantId)
+        conns.delete(held)
+      }
       if (cliByGrant.has(grant.grantId)) {
         // One live CLI connection per grant (§3); the tab sees the attempt.
         const binding = bindingOfGrant(grant.grantId)

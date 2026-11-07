@@ -218,8 +218,17 @@ export async function runLine(options: RunOptions): Promise<Result> {
       if (interrupted) {
         return end(cancelled('unknown'))
       }
+      if (!received && !change) {
+        // A read command is safe to run again whether it arrived or not.
+        return end(
+          errorResult(
+            'connection-lost',
+            `${why}; okuma komutu güvenle yeniden denenir`
+          )
+        )
+      }
       if (!received) {
-        // It may be on its way (§5.5).
+        // A changing command may be on its way (§5.5).
         return end(errorResult('unknown', `${why}; istek yolda olabilir`))
       }
       if (change) {

@@ -278,7 +278,7 @@ describe('§5.5 tabs', () => {
     expect(probe.stops).toBe(0)
   })
 
-  it('no received and the hub connection breaks: unknown, code 5', async () => {
+  async function breakBeforeReceived(line: string[]) {
     const own = await startHub({
       GECKO_DEV_HUB_TIMINGS: JSON.stringify(timings)
     })
@@ -289,16 +289,28 @@ describe('§5.5 tabs', () => {
     const tab = await fakeTab({ hubUrl: own.url, commands: commands(probe) })
     await attach(own, config.dir, tab)
     tab.deaf = true
-    const call = cli(['--json', 'search', '--ip', '1'], {
+    const call = cli(['--json', ...line], {
       configDir: config.dir,
       env: fast
     })
     await pause(300)
     own.child.kill()
     const done = await call.done
-    expect(done.code).toBe(5)
-    expect(JSON.parse(done.stdout).code).toBe('unknown')
     await tab.close()
+    expect(probe.stops).toBe(0)
+    return { code: done.code, result: JSON.parse(done.stdout) }
+  }
+
+  it('no received and the hub connection breaks, a read: connection-lost, code 4', async () => {
+    const done = await breakBeforeReceived(['nav.where'])
+    expect(done.code).toBe(4)
+    expect(done.result.code).toBe('connection-lost')
+  })
+
+  it('no received and the hub connection breaks, a change: unknown, code 5', async () => {
+    const done = await breakBeforeReceived(['tasks.stop', '--id', '1', '--yes'])
+    expect(done.code).toBe(5)
+    expect(done.result.code).toBe('unknown')
   })
 
   it('received, then the tab drops: a read is connection-lost (4)', async () => {
@@ -351,6 +363,19 @@ describe('§5.5 tabs', () => {
     expect(tab.busyAttempts).toHaveLength(1)
     expect((await first.done).code).toBe(0)
   })
+
+  it('a call that has just closed its connection never makes the next one busy', async () => {
+    // The closing handshake ends on the CLI side before the hub's socket
+    // reports `close` (on Windows the TCP close lags); a connection the hub
+    // has already answered with a close frame must not hold the grant.
+    const { dir } = await bound()
+    for (let i = 0; i < 100; i++) {
+      const transport = await rawCli(hub, dir)
+      await transport.close()
+    }
+    const last = await rawCli(hub, dir)
+    await last.close()
+  }, 60_000)
 
   it('a second grant binds the same tab: the first is gone, replaced', async () => {
     const { dir, tab } = await bound()

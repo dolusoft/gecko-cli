@@ -233,8 +233,9 @@ fn table(rows: &[Value], columns: Option<usize>) -> String {
 
 /// Rows under a header: columns empty in every row are hidden and named; id columns
 /// are never cut, and when they take more than half of the terminal the rows go
-/// vertical (`field  value` blocks); other cells are cut at `CELL_MAX`; the columns
-/// that do not fit are named.
+/// vertical (`field  value` blocks); on a terminal other cells are cut at `CELL_MAX`
+/// (into a pipe nothing is cut: an agent reads it whole); the columns that do not fit
+/// are named.
 fn grid(all_columns: &[String], all_cells: &[Vec<Value>], columns_max: Option<usize>) -> String {
     let at = |row: &Vec<Value>, i: usize| row.get(i).cloned().unwrap_or(Value::Null);
     let kept: Vec<usize> = (0..all_columns.len())
@@ -270,6 +271,11 @@ fn grid(all_columns: &[String], all_cells: &[Vec<Value>], columns_max: Option<us
         lines.extend(note);
         return lines.join("\n");
     }
+    let cell_max = if columns_max.is_some() {
+        CELL_MAX
+    } else {
+        usize::MAX
+    };
     let texts: Vec<Vec<String>> = values
         .iter()
         .map(|row| {
@@ -279,7 +285,7 @@ fn grid(all_columns: &[String], all_cells: &[Vec<Value>], columns_max: Option<us
                     if ids[i] {
                         cell(v)
                     } else {
-                        cut(&cell(v), CELL_MAX)
+                        cut(&cell(v), cell_max)
                     }
                 })
                 .collect()
@@ -292,7 +298,7 @@ fn grid(all_columns: &[String], all_cells: &[Vec<Value>], columns_max: Option<us
             if ids[i] {
                 escape_controls(n)
             } else {
-                cut(&escape_controls(n), CELL_MAX)
+                cut(&escape_controls(n), cell_max)
             }
         })
         .collect();
@@ -432,8 +438,11 @@ mod tests {
     #[test]
     fn cells_are_cut_and_scalars_flat() {
         let long = "x".repeat(50);
-        let out = format_data(&json!([{ "t": long }]), None);
+        let out = format_data(&json!([{ "t": long }]), Some(200));
         assert!(out.ends_with(&format!("{}…", "x".repeat(39))), "{out}");
+        // Into a pipe the cell stays whole.
+        let out = format_data(&json!([{ "t": long }]), None);
+        assert!(out.ends_with(&long), "{out}");
         assert_eq!(format_data(&json!([]), None), "(empty)");
         assert_eq!(format_data(&json!([1, "a\nb"]), None), "- 1\n- a b");
         assert_eq!(format_data(&json!("a\u{1b}b"), None), "a\\x1bb");

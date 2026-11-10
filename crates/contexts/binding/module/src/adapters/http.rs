@@ -1,17 +1,17 @@
 //! The hub's HTTP side: an attach code's secret turned into tokens (`POST /cli/attach`,
 //! attach spec §10.2) and the token's refresh. Requests follow the CLI's proxy rule;
-//! the token never goes into an address.
+//! the token never goes into an address. When to refresh and what a refusal means are
+//! the domain's (`gecko_binding_domain::token`).
 
-use std::time::Duration;
-
+use gecko_binding_contract::{StoredToken, TokenStore, User};
+use gecko_binding_domain::token::{
+    attach_refused, binding_ended, expires_at, needs_refresh, refresh_refused,
+};
 use gecko_hub_client::net;
 use gecko_hub_client::proxy::ProxyRule;
-use gecko_kernel::{BIND_AGAIN, Clock, Failure};
+use gecko_kernel::{Clock, Failure};
 use serde_json::{Map, Value};
 use url::Url;
-
-use crate::code;
-use crate::config::{Config, StoredToken, User};
 
 const CLIENT_ID: &str = "gecko-cli";
 
@@ -87,21 +87,7 @@ impl Auth {
                 .get("error")
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            return Err(match code {
-                "invalid-code" => code::invalid(),
-                "no-terminal-access" => {
-                    Failure::new("no-terminal-access", "this account has no terminal access")
-                }
-                "too-many-attempts" => Failure::new(
-                    "too-many-attempts",
-                    "too many wrong codes from this address; wait a minute, then copy a new code from the tab",
-                ),
-                "" => Failure::new(
-                    "failed",
-                    format!("the hub refused the code (HTTP {})", answer.status),
-                ),
-                other => Failure::new("failed", format!("the hub refused the code: {other}")),
-            });
+            return Err(attach_refused(answer.status, code));
         }
         let text = |key: &str| {
             answer
@@ -132,12 +118,12 @@ impl Auth {
     /// `force`). A refused refresh means the binding ended: the token is deleted.
     pub async fn current_token(
         &self,
-        config: &Config,
+        store: &impl TokenStore,
         token: StoredToken,
         force: bool,
         clock: &impl Clock,
     ) -> Result<StoredToken, Failure> {
-        if !force && token.access_expires_at.saturating_sub(clock.now_ms()) > 30_000 {
+        if !needs_refresh(token.access_expires_at, clock.now_ms(), force) {
             return Ok(token);
         }
         let answer = self
@@ -150,13 +136,9 @@ impl Auth {
                 ],
             )
             .await?;
-        if (400..500).contains(&answer.status) {
-            // `invalid_grant`: the grant ended with its binding (attach spec §6).
-            let _ = config.delete_token();
-            return Err(Failure::new(
-                "gone",
-                format!("the binding ended; {BIND_AGAIN}"),
-            ));
+        if refresh_refused(answer.status) {
+            let _ = store.delete_token();
+            return Err(binding_ended());
         }
         if answer.status != 200 {
             return Err(Failure::new(
@@ -179,41 +161,16 @@ impl Auth {
                 .map_or(token.refresh_token.clone(), str::to_owned),
             ..token
         };
-        config
+        store
             .write_token(&next)
             .map_err(|error| Failure::new("failed", format!("cannot save the token: {error}")))?;
         Ok(next)
     }
 }
 
-/// When the access token in `body` expires, counted from `now` (ms since the epoch).
-fn expires_at(body: &Map<String, Value>, now: u64) -> u64 {
-    let seconds = body
-        .get("expires_in")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0);
-    now + u64::try_from(bounded(seconds).as_millis()).unwrap_or(0)
-}
-
-/// Seconds from the server, bounded: negative or absurd values do not stall the CLI.
-fn bounded(value: f64) -> Duration {
-    if value.is_nan() {
-        return Duration::ZERO;
-    }
-    Duration::from_secs_f64(value.clamp(0.0, 24.0 * 3600.0))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn server_seconds_are_bounded() {
-        assert_eq!(bounded(0.25), Duration::from_millis(250));
-        assert_eq!(bounded(-3.0), Duration::ZERO);
-        assert_eq!(bounded(1e12), Duration::from_secs(24 * 3600));
-        assert_eq!(bounded(f64::NAN), Duration::ZERO);
-    }
 
     #[test]
     fn endpoints_keep_the_origin() {

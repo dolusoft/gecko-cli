@@ -4,38 +4,15 @@
 //! (`token-<env>.json`, `config.json` with `env`) are not read.
 //!
 //! The token file is the user's alone: mode 0600 on POSIX (directory 0700), the user's
-//! ACL only on Windows (`icacls`).
+//! ACL only on Windows (`icacls`). `Config` is the context's `TokenStore`.
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use gecko_binding_contract::{StoredToken, TokenStore};
 use serde::{Deserialize, Serialize};
-
-/// The user the binding acts for, as the hub names them.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct User {
-    pub id: String,
-    pub name: String,
-}
-
-/// The token of the binding, with the hub that issued it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StoredToken {
-    /// The hub's origin, as the attach code named it (`http://127.0.0.1:4400`).
-    pub hub: String,
-    pub access_token: String,
-    /// Milliseconds since the epoch.
-    pub access_expires_at: u64,
-    pub refresh_token: String,
-    pub grant_id: String,
-    pub binding_id: String,
-    /// The approval level chosen in the tab (`ask-server`, `never-ask`).
-    pub level: String,
-    pub user: User,
-}
 
 /// `config.json`: the settings that are not secret.
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -106,42 +83,8 @@ impl Config {
         read_json(&self.settings_path()).unwrap_or_default()
     }
 
-    /// Whether the user trusted this hub origin before.
-    pub fn trusts(&self, hub: &str) -> bool {
-        self.settings().trusted_hubs.iter().any(|h| h == hub)
-    }
-
-    /// Adds a hub origin to the trusted list.
-    pub fn trust(&self, hub: &str) -> io::Result<()> {
-        let mut settings = self.settings();
-        if settings.trusted_hubs.iter().any(|h| h == hub) {
-            return Ok(());
-        }
-        settings.trusted_hubs.push(hub.to_owned());
-        self.ensure_dir()?;
-        fs::write(self.settings_path(), pretty(&settings)?)
-    }
-
     pub fn token_path(&self) -> PathBuf {
         self.dir.join("token.json")
-    }
-
-    /// The binding's token; a file that cannot be read counts as none.
-    pub fn read_token(&self) -> Option<StoredToken> {
-        read_json(&self.token_path())
-    }
-
-    pub fn write_token(&self, token: &StoredToken) -> io::Result<()> {
-        self.ensure_dir()?;
-        write_secret(&self.token_path(), &pretty(token)?, self.user.as_deref())
-    }
-
-    /// Removes the token; a missing file is fine.
-    pub fn delete_token(&self) -> io::Result<()> {
-        match fs::remove_file(self.token_path()) {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
-            _ => Ok(()),
-        }
     }
 
     fn ensure_dir(&self) -> io::Result<()> {
@@ -151,6 +94,42 @@ impl Config {
         create_private_dir(&self.dir)?;
         restrict_windows(&self.dir, true, self.user.as_deref());
         Ok(())
+    }
+}
+
+impl TokenStore for Config {
+    /// The binding's token; a file that cannot be read counts as none.
+    fn read_token(&self) -> Option<StoredToken> {
+        read_json(&self.token_path())
+    }
+
+    fn write_token(&self, token: &StoredToken) -> io::Result<()> {
+        self.ensure_dir()?;
+        write_secret(&self.token_path(), &pretty(token)?, self.user.as_deref())
+    }
+
+    /// Removes the token; a missing file is fine.
+    fn delete_token(&self) -> io::Result<()> {
+        match fs::remove_file(self.token_path()) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether the user trusted this hub origin before.
+    fn trusts(&self, hub: &str) -> bool {
+        self.settings().trusted_hubs.iter().any(|h| h == hub)
+    }
+
+    /// Adds a hub origin to the trusted list.
+    fn trust(&self, hub: &str) -> io::Result<()> {
+        let mut settings = self.settings();
+        if settings.trusted_hubs.iter().any(|h| h == hub) {
+            return Ok(());
+        }
+        settings.trusted_hubs.push(hub.to_owned());
+        self.ensure_dir()?;
+        fs::write(self.settings_path(), pretty(&settings)?)
     }
 }
 
@@ -237,10 +216,11 @@ fn restrict_windows(_path: &Path, _directory: bool, _user: Option<&OsStr>) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gecko_binding_contract::User;
 
     fn temp_config(name: &str) -> Config {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/test-tmp/config")
+            .join("../../../../target/test-tmp/config")
             .join(format!("{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         Config::at(dir)

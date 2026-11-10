@@ -3,13 +3,13 @@
 //! rules and the slices are `gecko-command-domain` and `gecko-command-module`; opening
 //! and closing the connection is the binary's.
 
+use gecko_binding_module::adapters::fs::Config;
 use gecko_command_domain::line::precheck;
 use gecko_hub_protocol::HubConnection;
 use gecko_kernel::{Clock, Failure, IdSource, Interrupts, Outcome, Reporter};
 use gecko_wire::request::Input;
 
 use crate::args::Options;
-use crate::config::Config;
 use crate::ports::Ports;
 use crate::session;
 
@@ -44,8 +44,7 @@ pub async fn line(
     let name = precheck(&input)?;
     let mut session = session::open(config, ports).await?;
     let result = gecko_command_module::run_line(
-        &mut session.hub,
-        &mut session.status,
+        &mut session,
         &ports.command(),
         &input,
         &name,

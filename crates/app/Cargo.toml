@@ -19,6 +19,8 @@ default = ["dev-hub"]
 dev-hub = ["dep:gecko-dev-hub"]
 
 [dependencies]
+gecko-binding-contract.workspace = true
+gecko-binding-module.workspace = true
 gecko-command-contract.workspace = true
 gecko-command-domain.workspace = true
 gecko-command-module.workspace = true
@@ -27,7 +29,6 @@ gecko-hub-client.workspace = true
 gecko-hub-protocol.workspace = true
 gecko-kernel.workspace = true
 gecko-wire.workspace = true
-reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 terminal_size.workspace = true

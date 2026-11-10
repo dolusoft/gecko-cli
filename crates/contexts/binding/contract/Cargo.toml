@@ -1,0 +1,17 @@
+[package]
+name = "gecko-binding-contract"
+description = "The binding context's contract: the stored token, the token store, the trust prompt and the hub opener ports; no I/O"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gecko-hub-protocol.workspace = true
+gecko-kernel.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

@@ -1,28 +1,23 @@
 //! One `gecko` call's connection to the hub: the binding's token, the transport for its
 //! hub and the hub's `status`. Every path that fails after connecting closes the
 //! connection before it returns. What a closed connection means as a failure is
-//! `gecko_hub_protocol::failure`.
+//! `gecko_hub_protocol::failure`; the open connection with its status is
+//! `gecko_hub_protocol::Session`.
 
+use gecko_binding_contract::{StoredToken, TokenStore};
+use gecko_binding_module::adapters::fs::Config;
+use gecko_binding_module::adapters::http::Auth;
 use gecko_hub_client::dev::{DevOptions, DevTransport};
 use gecko_hub_protocol::address::{Choice, choose};
 use gecko_hub_protocol::failure::{call_failure, open_failure};
 use gecko_hub_protocol::hub::HubStatus;
-use gecko_hub_protocol::{Closed, HubConnection};
+use gecko_hub_protocol::{Closed, HubConnection, Session};
 use gecko_kernel::{Clock, Failure, IdSource, no_binding};
 use serde::de::DeserializeOwned;
 use serde_json::value::RawValue;
 use url::Url;
 
-use crate::auth::Auth;
-use crate::config::{Config, StoredToken};
 use crate::ports::Ports;
-
-/// An open connection and what the hub said about it.
-#[derive(Debug)]
-pub struct Session<H> {
-    pub hub: H,
-    pub status: HubStatus,
-}
 
 fn read<T: DeserializeOwned>(raw: &RawValue, what: &str) -> Result<T, Failure> {
     serde_json::from_str(raw.get()).map_err(|error| {

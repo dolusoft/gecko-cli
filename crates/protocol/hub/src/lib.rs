@@ -1,16 +1,18 @@
 //! The contract between the CLI and a hub (spec §7.2, #1974), without a connection:
 //! the hub's own answers (`hub`), its errors (`HubError`, `CallError`), the events it
 //! pushes (`HubEvent`), why a connection ended (`Closed`) and the address rules
-//! (`address`), what each of them means as a failure (`failure`) and the port of a
-//! connection (`HubConnection`). No I/O; a transport (`gecko-hub-client`) implements
-//! the port and carries these.
+//! (`address`), what each of them means as a failure (`failure`), the port of a
+//! connection (`HubConnection`) and an open connection with its status (`Session`). No
+//! I/O; a transport (`gecko-hub-client`) implements the port and carries these.
 
 pub mod address;
 mod connection;
 pub mod failure;
 pub mod hub;
+mod session;
 
 pub use connection::HubConnection;
+pub use session::Session;
 
 use serde::Deserialize;
 use serde_json::value::RawValue;

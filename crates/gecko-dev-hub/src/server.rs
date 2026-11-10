@@ -1,4 +1,4 @@
-//! The hub's listener: plain HTTP/1.1 for the device login routes, and the WebSocket
+//! The hub's listener: plain HTTP/1.1 for the attach and token routes, and the WebSocket
 //! upgrade on `/hub`. One request per connection (`Connection: close`); the hub serves
 //! a handful of local clients, never the internet.
 
@@ -17,7 +17,7 @@ use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Role, WebSocketConfig};
 
-use crate::hub::{Body, Hub, Kind, Options, Shared, lock};
+use crate::hub::{Hub, Kind, Options, Shared, lock};
 
 const MAX_HEAD_BYTES: usize = 16 * 1024;
 const MAX_BODY_BYTES: usize = 1024 * 1024;
@@ -30,8 +30,10 @@ pub struct Running {
     /// `http://127.0.0.1:<port>`
     pub url: String,
     pub port: u16,
-    /// The environment a CLI signs in with: `127.0.0.1:<port>`.
+    /// `127.0.0.1:<port>`
     pub env: String,
+    /// The hub address its attach codes carry: `--public-url`, or `url`.
+    pub code_url: String,
     accept: JoinHandle<()>,
 }
 
@@ -48,7 +50,7 @@ pub async fn start(options: Options) -> io::Result<Running> {
     let port = listener.local_addr()?.port();
     let env = format!("127.0.0.1:{port}");
     let url = format!("http://{env}");
-    let web_origin = options.web_origin.clone().unwrap_or_else(|| url.clone());
+    let code_url = options.public_url.clone().unwrap_or_else(|| url.clone());
     let cors = match &options.web_origin {
         Some(origin) => format!("cors: {origin} only"),
         None => {
@@ -56,21 +58,25 @@ pub async fn start(options: Options) -> io::Result<Running> {
                 .to_owned()
         }
     };
-    let hub = Hub::new(options, env.clone(), web_origin);
+    let hub = Hub::new(options, env.clone(), code_url.clone());
     {
         let hub = lock(&hub);
         hub.log(&format!("dev hub listening on {url}"));
+        if code_url != url {
+            hub.log(&format!("attach codes name {code_url}"));
+        }
         hub.log(&cors);
     }
     let accept = tokio::spawn(async move {
         loop {
-            let Ok((stream, _)) = listener.accept().await else {
+            let Ok((stream, peer)) = listener.accept().await else {
                 continue;
             };
             let _ = stream.set_nodelay(true);
             let hub = hub.clone();
+            let peer = peer.ip().to_string();
             tokio::spawn(async move {
-                if let Err(error) = connection(&hub, stream).await {
+                if let Err(error) = connection(&hub, stream, &peer).await {
                     lock(&hub).log(&format!("connection error: {error}"));
                 }
             });
@@ -80,6 +86,7 @@ pub async fn start(options: Options) -> io::Result<Running> {
         url,
         port,
         env,
+        code_url,
         accept,
     })
 }
@@ -123,7 +130,7 @@ fn parse_head(head: &str) -> Option<Request> {
     })
 }
 
-async fn connection(hub: &Shared, mut stream: TcpStream) -> io::Result<()> {
+async fn connection(hub: &Shared, mut stream: TcpStream, peer: &str) -> io::Result<()> {
     let mut buffer = Vec::with_capacity(1024);
     let head_end = loop {
         if let Some(end) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
@@ -201,32 +208,23 @@ async fn connection(hub: &Shared, mut stream: TcpStream) -> io::Result<()> {
     } else {
         Map::new()
     };
-    let (status, answer) =
-        lock(hub).http(&request.method, address.path(), request.bearer(), &fields);
-    match answer {
-        Body::Json(value) => {
-            let mut headers = cors;
-            headers.push(("Cache-Control", "no-store".to_owned()));
-            respond(
-                &mut stream,
-                status,
-                &headers,
-                value.to_string().as_bytes(),
-                "application/json; charset=utf-8",
-            )
-            .await
-        }
-        Body::Html(page) => {
-            respond(
-                &mut stream,
-                status,
-                &cors,
-                page.as_bytes(),
-                "text/html; charset=utf-8",
-            )
-            .await
-        }
-    }
+    let (status, value) = lock(hub).http(
+        &request.method,
+        address.path(),
+        request.bearer(),
+        &fields,
+        peer,
+    );
+    let mut headers = cors;
+    headers.push(("Cache-Control", "no-store".to_owned()));
+    respond(
+        &mut stream,
+        status,
+        &headers,
+        value.to_string().as_bytes(),
+        "application/json; charset=utf-8",
+    )
+    .await
 }
 
 /// A request body as fields: JSON when the type says so, a form otherwise.
@@ -257,6 +255,7 @@ async fn respond(
         204 => "No Content",
         400 => "Bad Request",
         401 => "Unauthorized",
+        403 => "Forbidden",
         404 => "Not Found",
         413 => "Payload Too Large",
         429 => "Too Many Requests",

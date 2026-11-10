@@ -1,5 +1,5 @@
-//! The CLI's own commands (login, logout; attach, detach, status and help follow in
-//! step 4b-4/4b-5). Their options come after the name: `gecko login --env dev`.
+//! The CLI's own commands: login and logout here, the binding commands in `binding`;
+//! help follows in step 4b-5. Their options come after the name: `gecko login --env dev`.
 
 use gecko_hub_client::proxy::ProxyRule;
 
@@ -62,7 +62,7 @@ pub fn own_option(args: &[String], name: &str) -> Flag {
 }
 
 /// The environment of a command: its own `--env`, the global `--env`, or the last login.
-fn env_of(args: &[String], options: &Options, config: &Config) -> Result<String, Failure> {
+pub fn env_of(args: &[String], options: &Options, config: &Config) -> Result<String, Failure> {
     if let Flag::Value(env) = own_option(args, "env") {
         return Ok(env);
     }

@@ -9,14 +9,14 @@ use serde::Serialize;
 /// A failure the CLI itself reports, with a machine code (`not-logged-in`, `usage`, ...).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Failure {
-    pub code: &'static str,
+    pub code: String,
     pub message: String,
 }
 
 impl Failure {
-    pub fn new(code: &'static str, message: impl Into<String>) -> Failure {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Failure {
         Failure {
-            code,
+            code: code.into(),
             message: message.into(),
         }
     }
@@ -27,9 +27,9 @@ impl Failure {
 pub fn exit_code_of(code: &str) -> u8 {
     match code {
         "usage" | "unsupported-version" => 2,
-        "not-allowed" | "pair-timeout" => 3,
+        "not-allowed" | "pair-timeout" | "no-terminal-access" => 3,
         "unreachable" | "connection-lost" | "busy" | "no-binding" | "gone" | "tab-unreachable"
-        | "not-delivered" | "rate-limited" => 4,
+        | "not-delivered" | "rate-limited" | "invalid-code" | "expired" | "other-account" => 4,
         "unknown-outcome" => 5,
         "not-logged-in" | "unauthorized" | "token-expired" | "revoked" => 6,
         "cancelled" => 130,
@@ -49,6 +49,8 @@ pub struct Outcome {
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
     /// The process exit code; written on an error only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<u8>,
@@ -66,6 +68,7 @@ impl Outcome {
             code: None,
             message: None,
             summary: Some(summary.into()),
+            data: None,
             exit_code: None,
             preview: false,
             complete: true,
@@ -74,7 +77,7 @@ impl Outcome {
     }
 
     pub fn failed(failure: &Failure) -> Outcome {
-        let exit = exit_code_of(failure.code);
+        let exit = exit_code_of(&failure.code);
         Outcome {
             v: 1,
             status: match exit {
@@ -82,9 +85,10 @@ impl Outcome {
                 130 => "cancelled",
                 _ => "error",
             },
-            code: Some(failure.code.to_owned()),
+            code: Some(failure.code.clone()),
             message: Some(failure.message.clone()),
             summary: None,
+            data: None,
             exit_code: Some(exit),
             preview: false,
             complete: exit != 5,

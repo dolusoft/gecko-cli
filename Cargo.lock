@@ -227,6 +227,7 @@ dependencies = [
 name = "gecko"
 version = "0.3.0-dev.0"
 dependencies = [
+ "futures-util",
  "gecko-dev-hub",
  "gecko-hub-client",
  "gecko-wire",
@@ -234,6 +235,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tokio-tungstenite",
  "url",
 ]
 

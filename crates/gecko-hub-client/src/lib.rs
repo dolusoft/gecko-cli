@@ -7,6 +7,7 @@
 //! 4a, docs/signalr-trial.md). Neither reconnects, so a command is never sent twice.
 
 pub mod dev;
+pub mod hub;
 pub mod net;
 pub mod proxy;
 pub mod select;

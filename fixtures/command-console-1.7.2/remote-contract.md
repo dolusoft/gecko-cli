@@ -1,6 +1,6 @@
 # Remote contract
 
-The messages between a desktop CLI and the one browser tab it is bound to (ADR 0014), as of command-console 1.7.1. This document is normative: the types in `@dolusoft/command-protocol` (`src/remote.ts`, `src/outcome.ts`) implement it, and the examples in [`fixtures/remote/`](../fixtures/remote/README.md) illustrate it without replacing it. The hub between the two is opaque: it stamps the CLI's messages and routes them, and it stores the tab's capabilities without reading them; its own protocol lives in gecko-cli (`docs/hub-protocol.md`).
+The messages between a desktop CLI and the one browser tab it is bound to (ADR 0014), as of command-console 1.7.2. This document is normative: the types in `@dolusoft/command-protocol` (`src/remote.ts`, `src/outcome.ts`) implement it, and the examples in [`fixtures/remote/`](../fixtures/remote/README.md) illustrate it without replacing it. The hub between the two is opaque: it stamps the CLI's messages and routes them, and it stores the tab's capabilities without reading them; its own protocol lives in gecko-cli (`docs/hub-protocol.md`).
 
 Every envelope is one JSON object of at most 16384 UTF-8 bytes (`envelopeMaxBytes`). Text limits count Unicode code points (a character outside the BMP, such as an emoji, is one). "Reader" below means the side that receives the message: the tab (`parseCliMessage`) for messages from the CLI, the CLI for replies from the tab.
 

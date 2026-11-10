@@ -61,8 +61,58 @@ jobs:
       - run: pnpm test
       - run: pnpm measure:startup
 
+  # SignalR trial (docs/signalr-trial.md): the narrow Rust client against the smallest
+  # ASP.NET Core hub. The hub stays in CI because the real backend is not ours.
+  signalr:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      GECKO_SIGNALR_TEST_HUB: http://127.0.0.1:5199
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.95'
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: spikes/signalr-manual
+      - run: dotnet build tests/signalr-hub -nologo -v q
+      - name: Start the test hub
+        env:
+          TEST_HUB_KEEPALIVE_MS: '500'
+          TEST_HUB_CLIENT_TIMEOUT_MS: '2000'
+        run: |
+          dotnet tests/signalr-hub/bin/Debug/net10.0/SignalRTestHub.dll --urls "$GECKO_SIGNALR_TEST_HUB" > hub.log 2>&1 &
+          for _ in $(seq 1 60); do
+            grep -q '^ready' hub.log && exit 0
+            sleep 0.5
+          done
+          cat hub.log
+          exit 1
+      - working-directory: spikes/signalr-manual
+        run: cargo fmt --check
+      - working-directory: spikes/signalr-manual
+        run: cargo clippy --all-targets -- -D warnings
+      - working-directory: spikes/signalr-manual
+        run: cargo test
+      - if: ${{ failure() }}
+        run: cat hub.log
+
   verify:
-    needs: [checks, test]
+    needs: [checks, test, signalr]
     # A skipped required check counts as passed; this one reports failures.
     if: ${{ always() }}
     runs-on: ubuntu-latest
@@ -72,7 +122,7 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "checks, test: $RESULTS"
+          echo "checks, test, signalr: $RESULTS"
           for result in $RESULTS; do
             if [ "$result" != "success" ]; then
               exit 1

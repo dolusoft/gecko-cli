@@ -3,3 +3,6 @@ dist/
 coverage/
 *.log
 .tmp/
+target/
+tests/signalr-hub/bin/
+tests/signalr-hub/obj/

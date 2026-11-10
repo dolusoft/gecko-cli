@@ -89,10 +89,6 @@ pub enum HubEvent {
     Reply(Box<RawValue>),
     /// `binding`: the binding changed state (suspended, active again, gone).
     Binding(Box<RawValue>),
-    /// `paired`: the browser approved the pairing code.
-    Paired(Box<RawValue>),
-    /// `pair-refused`: the browser refused it; carries the hub's code.
-    PairRefused(String),
     /// An event this CLI does not know; kept so a newer hub does not break it.
     Other {
         name: String,
@@ -101,24 +97,11 @@ pub enum HubEvent {
 }
 
 impl HubEvent {
-    /// Sorts an event by its name. A `pair-refused` without a string `code` keeps an
-    /// empty code rather than failing.
+    /// Sorts an event by its name.
     pub fn from_parts(name: &str, payload: Box<RawValue>) -> HubEvent {
         match name {
             "reply" => HubEvent::Reply(payload),
             "binding" => HubEvent::Binding(payload),
-            "paired" => HubEvent::Paired(payload),
-            "pair-refused" => {
-                #[derive(Deserialize)]
-                struct Refused {
-                    code: Option<String>,
-                }
-                let code = serde_json::from_str::<Refused>(payload.get())
-                    .ok()
-                    .and_then(|refused| refused.code)
-                    .unwrap_or_default();
-                HubEvent::PairRefused(code)
-            }
             _ => HubEvent::Other {
                 name: name.to_owned(),
                 payload,
@@ -132,8 +115,6 @@ impl HubEvent {
 pub trait Transport {
     /// `status`: who is signed in and what the binding holds (capabilities, where).
     fn status(&mut self) -> impl Future<Output = Result<Box<RawValue>, CallError>>;
-    /// `pair`: a pairing code for `gecko attach`.
-    fn pair(&mut self) -> impl Future<Output = Result<Box<RawValue>, CallError>>;
     /// `send`: one envelope to the bound tab. The hub stamps and routes it unread; the
     /// answer is the stamp (`stampedAt`, `expiresAt`).
     fn send(
@@ -203,17 +184,10 @@ mod tests {
             HubEvent::from_parts("binding", raw("{}")),
             HubEvent::Binding(_)
         ));
+        // The pairing events are gone with the pairing (attach spec §10.2).
         assert!(matches!(
             HubEvent::from_parts("paired", raw("{}")),
-            HubEvent::Paired(_)
-        ));
-        assert!(matches!(
-            HubEvent::from_parts("pair-refused", raw("{\"code\":\"expired\"}")),
-            HubEvent::PairRefused(code) if code == "expired"
-        ));
-        assert!(matches!(
-            HubEvent::from_parts("pair-refused", raw("null")),
-            HubEvent::PairRefused(code) if code.is_empty()
+            HubEvent::Other { name, .. } if name == "paired"
         ));
         assert!(matches!(
             HubEvent::from_parts("later", raw("1")),

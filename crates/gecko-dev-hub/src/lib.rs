@@ -4,7 +4,6 @@
 //! have it, release builds do not.
 
 mod hub;
-mod page;
 mod random;
 mod server;
 
@@ -17,15 +16,17 @@ pub use hub::{Options, Timings, User, is_loopback_origin};
 pub use server::{Running, start};
 
 const USAGE: &str = "\
-Usage: gecko dev-hub [--port <n>] [--web <origin>] [--auto-approve] [--interval <s>]
+Usage: gecko dev-hub [--port <n>] [--web <origin>] [--public-url <url>]
 
 Starts the development hub on 127.0.0.1. The first stdout line is its address.
 
-  --port <n>        port (default 4400; 0 picks a free one)
-  --web <origin>    origin of the /cli-pair and /cli-login pages (a local Gecko web
-                    server); the one origin the browser may call the hub from
-  --auto-approve    approves every device code for the first user (tests)
-  --interval <s>    the device poll interval in seconds (default 5)
+  --port <n>          port (default 4400; 0 picks a free one)
+  --web <origin>      origin of a local Gecko web server; the one origin the
+                      browser may call the hub from (default: any loopback origin)
+  --public-url <url>  the hub address written into attach codes (default: the
+                      first stdout line)
+
+A Gecko tab makes the attach code; the CLI binds with: gecko attach <code>
 
 Environment: GECKO_DEV_HUB_RATE, GECKO_DEV_HUB_BURST, GECKO_DEV_HUB_USERS,
 GECKO_DEV_HUB_TIMINGS, GECKO_DEV_HUB_STDIN (docs/test-hooks.md).
@@ -73,7 +74,10 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         // The first stdout line is the address; tests read it.
         let _ = writeln!(out, "{}", hub.url);
         let _ = out.flush();
-        let _ = writeln!(err, "Sign in with: gecko login --env {}", hub.env);
+        let _ = writeln!(
+            err,
+            "Bind from a Gecko tab: its attach line runs gecko attach <code>"
+        );
         stopped().await;
         hub.close();
         0
@@ -128,7 +132,6 @@ fn options(
     env: impl Fn(&str) -> Option<String>,
 ) -> Result<Option<Options>, String> {
     let mut options = Options::default();
-    let mut interval = None;
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
         let (name, inline) = match arg.split_once('=') {
@@ -143,7 +146,6 @@ fn options(
         };
         match name {
             "--help" | "-h" => return Ok(None),
-            "--auto-approve" => options.auto_approve = true,
             "--port" => {
                 let text = value()?;
                 options.port = text
@@ -151,14 +153,18 @@ fn options(
                     .map_err(|_| format!("--port: not a port: {text}"))?;
             }
             "--web" => options.web_origin = Some(value()?.trim_end_matches('/').to_owned()),
-            "--interval" => {
+            "--public-url" => {
                 let text = value()?;
-                let seconds: f64 = text
-                    .parse()
+                let trimmed = text.trim_end_matches('/');
+                let origin = url::Url::parse(trimmed)
                     .ok()
-                    .filter(|s: &f64| s.is_finite() && *s >= 0.0)
-                    .ok_or_else(|| format!("--interval: not a number of seconds: {text}"))?;
-                interval = Some(seconds * 1000.0);
+                    .filter(|u| matches!(u.scheme(), "http" | "https"))
+                    .map(|u| u.origin().ascii_serialization())
+                    .filter(|origin| origin == trimmed)
+                    .ok_or_else(|| {
+                        format!("--public-url: not an http(s) origin such as https://hub.example: {text}")
+                    })?;
+                options.public_url = Some(origin);
             }
             other => return Err(format!("unknown option {other}")),
         }
@@ -189,9 +195,6 @@ fn options(
             _ => return Err("GECKO_DEV_HUB_TIMINGS: not a JSON object".into()),
         }
     }
-    if let Some(interval) = interval {
-        options.timings.interval_ms = interval;
-    }
     Ok(Some(options))
 }
 
@@ -215,9 +218,8 @@ mod tests {
                 "--port",
                 "0",
                 "--web=http://localhost:5173/",
-                "--auto-approve",
-                "--interval",
-                "0.1",
+                "--public-url",
+                "https://hub.example/",
             ],
             &[
                 ("GECKO_DEV_HUB_RATE", "1000"),
@@ -225,23 +227,19 @@ mod tests {
                     "GECKO_DEV_HUB_USERS",
                     r#"[{"id":"a","name":"Ada","terminal":false}]"#,
                 ),
-                (
-                    "GECKO_DEV_HUB_TIMINGS",
-                    r#"{"suspendMs":300,"intervalMs":9}"#,
-                ),
+                ("GECKO_DEV_HUB_TIMINGS", r#"{"suspendMs":300,"unloadMs":9}"#),
             ],
         )
         .unwrap()
         .unwrap();
         assert_eq!(options.port, 0);
         assert_eq!(options.web_origin.as_deref(), Some("http://localhost:5173"));
-        assert!(options.auto_approve);
+        assert_eq!(options.public_url.as_deref(), Some("https://hub.example"));
         assert_eq!(options.rate_per_second, 1000.0);
         assert_eq!(options.rate_burst, None);
         assert_eq!(options.users[0].terminal, Some(false));
         assert_eq!(options.timings.suspend_ms, 300.0);
-        // --interval wins over the JSON.
-        assert_eq!(options.timings.interval_ms, 100.0);
+        assert_eq!(options.timings.unload_ms, 9.0);
     }
 
     #[test]
@@ -249,6 +247,9 @@ mod tests {
         assert!(parse(&["--port", "x"], &[]).is_err());
         assert!(parse(&["--port"], &[]).is_err());
         assert!(parse(&["--nope"], &[]).is_err());
+        assert!(parse(&["--auto-approve"], &[]).is_err());
+        assert!(parse(&["--public-url", "ftp://x"], &[]).is_err());
+        assert!(parse(&["--public-url", "https://x/hub"], &[]).is_err());
         assert!(parse(&[], &[("GECKO_DEV_HUB_RATE", "fast")]).is_err());
         assert!(parse(&[], &[("GECKO_DEV_HUB_TIMINGS", "[]")]).is_err());
         assert!(parse(&["--help"], &[]).unwrap().is_none());

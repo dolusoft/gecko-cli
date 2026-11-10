@@ -132,11 +132,8 @@ async fn calls_events_and_close() {
         assert!(status.get("args").is_none());
         say(&mut hub, serde_json::json!({ "t": "result", "id": status["id"], "ok": true, "value": { "grantId": "g1" } })).await;
 
-        let pair = heard(&mut hub).await;
-        assert_eq!(pair["method"], "pair");
-        say(&mut hub, serde_json::json!({ "t": "result", "id": pair["id"], "ok": true, "value": { "code": "ABCD" } })).await;
-        say(&mut hub, serde_json::json!({ "t": "event", "name": "paired", "payload": { "bindingId": "b1" } })).await;
-        say(&mut hub, serde_json::json!({ "t": "event", "name": "pair-refused", "payload": { "code": "expired" } })).await;
+        // An event this CLI does not know is kept, not an error.
+        say(&mut hub, serde_json::json!({ "t": "event", "name": "later", "payload": { "x": 1 } })).await;
 
         let send = heard(&mut hub).await;
         assert_eq!(send["method"], "send");
@@ -171,14 +168,9 @@ async fn calls_events_and_close() {
         transport.status().await.unwrap().get(),
         "{\"grantId\":\"g1\"}"
     );
-    assert_eq!(transport.pair().await.unwrap().get(), "{\"code\":\"ABCD\"}");
     assert!(matches!(
         transport.next_event().await.unwrap(),
-        HubEvent::Paired(_)
-    ));
-    assert!(matches!(
-        transport.next_event().await.unwrap(),
-        HubEvent::PairRefused(code) if code == "expired"
+        HubEvent::Other { name, .. } if name == "later"
     ));
     let receipt = transport
         .send(&raw("{\"v\":1,\"kind\":\"cli-request\"}"))

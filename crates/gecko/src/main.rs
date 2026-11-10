@@ -1,13 +1,13 @@
 //! `gecko`: the remote control of the Gecko web terminal. A line typed here runs in the
 //! bound browser tab, and the result comes back.
 //!
-//! Options, help, version, the dev-hub switch, login, logout, attach, detach, status,
-//! `gecko help` and the line path (command-console 1.7).
+//! Options, help, version, the dev-hub switch, attach, detach, status, `gecko help`
+//! and the line path (command-console 1.7).
 
 mod args;
 mod auth;
 mod binding;
-mod browser;
+mod code;
 mod config;
 mod format;
 mod help;
@@ -37,24 +37,22 @@ Usage:
   gecko [options] --line -           reads the line from stdin
 
 Own commands:
-  login [--env <env>]     device sign-in; remembers the environment
-  logout                  revokes the grant and deletes the token
-  attach [--new]          binds to a Gecko tab (approved in the browser)
-  detach                  removes the binding
+  attach <code>           binds to the Gecko tab the code came from ("Attach CLI"
+                          in the tab's terminal panel); `attach -` reads it from stdin
+  detach                  ends the binding and deletes its token
   help [namespace|cmd]    the bound tab's commands (filtered, paged)
-  status                  sign-in, bound tab and hub state
+  status                  bound tab, approval level and hub state
   dev-hub [options]       starts the development hub (localhost only)
 
 Options (before the command name):
   --json            one JSON object; non-ASCII characters as \uXXXX
-  --env <env>       environment (default: the last login)
   --out <file>      writes the result to the file as UTF-8
   --view <id>       runs the command in this Data View
   -h, --help        this text
   -v, --version     the version
 
 Exit codes: 0 ok, 1 failed, 2 usage, 3 denied, 4 not run, 5 unknown outcome,
-6 not signed in, 130 interrupted.
+6 invalid code or ended binding, 130 interrupted.
 "#;
 
 fn main() -> ExitCode {
@@ -120,7 +118,6 @@ fn tab_line(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let auto_pair = line::may_auto_pair(options.json, line.is_some());
     let input = line::input_of(argv, line);
     // The tab's `help` command is not open to the CLI: a `help …` line asks as
     // `gecko help …` does.
@@ -129,7 +126,7 @@ fn tab_line(
     {
         return execute(options, out, err, Job::Help { args });
     }
-    execute(options, out, err, Job::Line { input, auto_pair })
+    execute(options, out, err, Job::Line { input })
 }
 
 /// What one call does once the runtime is up.
@@ -140,7 +137,6 @@ enum Job<'a> {
     },
     Line {
         input: Result<gecko_wire::request::Input, Failure>,
-        auto_pair: bool,
     },
     Help {
         args: Vec<String>,
@@ -184,35 +180,28 @@ fn execute_to(
         let (io, config, interrupts) = (&mut io, &config, &mut interrupts);
         match job {
             Job::Own { name, rest } => match name {
-                "login" => own::login(rest, options, config, io, interrupts).await,
-                "logout" => own::logout(rest, options, config).await,
                 "attach" => binding::attach(rest, options, config, io, interrupts).await,
-                "detach" => binding::detach(rest, options, config).await,
-                _ => binding::status(rest, options, config).await,
+                "detach" => binding::detach(config).await,
+                _ => binding::status(options, config).await,
             },
-            Job::Line { input, auto_pair } => {
-                let this = line::LineRun {
-                    options,
-                    config,
-                    auto_pair,
-                };
-                match input {
-                    Ok(input) => line::run(this, input, io, interrupts).await,
-                    Err(failure) => Err(failure),
-                }
-            }
-            Job::Help { args } => help::run(&args, options, config, io, interrupts).await,
+            Job::Line { input } => match input {
+                Ok(input) => line::run(options, config, input, io, interrupts).await,
+                Err(failure) => Err(failure),
+            },
+            Job::Help { args } => help::run(&args, config, io, interrupts).await,
         }
     });
     // A blocking stdin read (the test interrupt hook) must not hold the process open.
     runtime.shutdown_background();
     match result {
         Ok(outcome) => io.emit(&outcome),
-        // Without a login there is no tab to ask: the CLI's own usage (an agent
-        // reading JSON gets the identity error, UX U9).
-        Err(failure) if is_help && failure.code == "not-logged-in" && !options.json => {
+        // Without a binding there is no tab to ask: the CLI's own usage (an agent
+        // reading JSON gets the `no-binding` error, UX U9).
+        Err(failure) if is_help && failure.code == "no-binding" && !options.json => {
             let _ = io.out.write_all(USAGE.as_bytes());
-            io.info("For the Gecko commands, first: gecko login --env <env>");
+            io.info(
+                "For the Gecko commands, first: gecko attach <code> (copy the line from the Gecko tab)",
+            );
             0
         }
         Err(failure) => io.fail(&failure),

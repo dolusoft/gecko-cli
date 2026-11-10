@@ -1,7 +1,7 @@
-//! The CLI's files: the chosen environment (`config.json`), one token per environment
-//! (`token-<env>.json`, the only secret on disk) and the bound page's capability cache
-//! (`capabilities-<env>.json`). The names and the JSON are those of the earlier
-//! TypeScript build, so a sign-in it saved still reads.
+//! The CLI's files: the hubs the user trusted (`config.json`) and the one binding's token
+//! (`token.json`, the only secret on disk). A binding and its token live and end
+//! together (attach spec §6), so there is one token at most. Files of the 0.3.0 layout
+//! (`token-<env>.json`, `config.json` with `env`) are not read.
 //!
 //! The token file is the user's alone: mode 0600 on POSIX (directory 0700), the user's
 //! ACL only on Windows (`icacls`).
@@ -12,23 +12,37 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// The signed-in user, as the hub names them.
+/// The user the binding acts for, as the hub names them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct User {
     pub id: String,
     pub name: String,
 }
 
+/// The token of the binding, with the hub that issued it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoredToken {
-    pub env: String,
+    /// The hub's origin, as the attach code named it (`http://127.0.0.1:4400`).
+    pub hub: String,
     pub access_token: String,
     /// Milliseconds since the epoch.
     pub access_expires_at: u64,
     pub refresh_token: String,
     pub grant_id: String,
+    pub binding_id: String,
+    /// The approval level chosen in the tab (`ask-server`, `never-ask`).
+    pub level: String,
     pub user: User,
+}
+
+/// `config.json`: the settings that are not secret.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Settings {
+    /// Hub origins the user agreed to connect to (attach spec §3.3).
+    #[serde(default)]
+    trusted_hubs: Vec<String>,
 }
 
 /// The directory of the CLI's files.
@@ -71,47 +85,51 @@ impl Config {
         &self.dir
     }
 
-    pub fn read_default_env(&self) -> Option<String> {
-        #[derive(Deserialize)]
-        struct File {
-            env: Option<String>,
+    fn settings_path(&self) -> PathBuf {
+        self.dir.join("config.json")
+    }
+
+    /// Settings that cannot be read (missing, an older layout, broken) read as none.
+    fn settings(&self) -> Settings {
+        read_json(&self.settings_path()).unwrap_or_default()
+    }
+
+    /// Whether the user trusted this hub origin before.
+    pub fn trusts(&self, hub: &str) -> bool {
+        self.settings().trusted_hubs.iter().any(|h| h == hub)
+    }
+
+    /// Adds a hub origin to the trusted list.
+    pub fn trust(&self, hub: &str) -> io::Result<()> {
+        let mut settings = self.settings();
+        if settings.trusted_hubs.iter().any(|h| h == hub) {
+            return Ok(());
         }
-        read_json::<File>(&self.dir.join("config.json"))?.env
-    }
-
-    pub fn write_default_env(&self, env: &str) -> io::Result<()> {
+        settings.trusted_hubs.push(hub.to_owned());
         self.ensure_dir()?;
-        let text = pretty(&serde_json::json!({ "env": env }))?;
-        fs::write(self.dir.join("config.json"), text)
+        fs::write(self.settings_path(), pretty(&settings)?)
     }
 
-    pub fn token_path(&self, env: &str) -> PathBuf {
-        self.dir.join(format!("token-{}.json", file_key(env)))
+    pub fn token_path(&self) -> PathBuf {
+        self.dir.join("token.json")
     }
 
-    fn capabilities_path(&self, env: &str) -> PathBuf {
-        self.dir
-            .join(format!("capabilities-{}.json", file_key(env)))
-    }
-
-    pub fn read_token(&self, env: &str) -> Option<StoredToken> {
-        read_json(&self.token_path(env))
+    /// The binding's token; a file that cannot be read counts as none.
+    pub fn read_token(&self) -> Option<StoredToken> {
+        read_json(&self.token_path())
     }
 
     pub fn write_token(&self, token: &StoredToken) -> io::Result<()> {
         self.ensure_dir()?;
-        write_secret(&self.token_path(&token.env), &pretty(token)?)
+        write_secret(&self.token_path(), &pretty(token)?)
     }
 
-    /// Removes the token and the capability cache of `env`; a missing file is fine.
-    pub fn delete_token(&self, env: &str) -> io::Result<()> {
-        for path in [self.token_path(env), self.capabilities_path(env)] {
-            match fs::remove_file(&path) {
-                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-                _ => {}
-            }
+    /// Removes the token; a missing file is fine.
+    pub fn delete_token(&self) -> io::Result<()> {
+        match fs::remove_file(self.token_path()) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     fn ensure_dir(&self) -> io::Result<()> {
@@ -122,19 +140,6 @@ impl Config {
         restrict_windows(&self.dir, true);
         Ok(())
     }
-}
-
-/// An environment as a file name: anything but `A-Z a-z 0-9 . -` becomes `_`.
-pub fn file_key(env: &str) -> String {
-    env.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
 }
 
 /// Two-space JSON.
@@ -229,13 +234,15 @@ mod tests {
         Config::at(dir)
     }
 
-    fn token(env: &str) -> StoredToken {
+    fn token() -> StoredToken {
         StoredToken {
-            env: env.to_owned(),
+            hub: "http://127.0.0.1:4400".to_owned(),
             access_token: "a".to_owned(),
             access_expires_at: 1,
             refresh_token: "r".to_owned(),
             grant_id: "g".to_owned(),
+            binding_id: "b".to_owned(),
+            level: "ask-server".to_owned(),
             user: User {
                 id: "u1".to_owned(),
                 name: "Zahit".to_owned(),
@@ -244,25 +251,18 @@ mod tests {
     }
 
     #[test]
-    fn file_keys() {
-        assert_eq!(file_key("127.0.0.1:4400"), "127.0.0.1_4400");
-        assert_eq!(file_key("develop.example"), "develop.example");
-        assert_eq!(file_key("a/b\\c ç"), "a_b_c__");
-    }
-
-    #[test]
-    fn token_round_trip_in_the_node_format() {
+    fn token_round_trip() {
         let config = temp_config("round-trip");
-        assert_eq!(config.read_token("127.0.0.1:4400"), None);
-        config.write_token(&token("127.0.0.1:4400")).unwrap();
-        let path = config.token_path("127.0.0.1:4400");
-        assert!(path.ends_with("token-127.0.0.1_4400.json"));
+        assert_eq!(config.read_token(), None);
+        config.write_token(&token()).unwrap();
+        let path = config.token_path();
+        assert!(path.ends_with("token.json"));
         let text = fs::read_to_string(&path).unwrap();
-        assert!(text.starts_with("{\n  \"env\": \"127.0.0.1:4400\",\n  \"accessToken\": \"a\",\n  \"accessExpiresAt\": 1,"), "{text}");
-        assert_eq!(
-            config.read_token("127.0.0.1:4400"),
-            Some(token("127.0.0.1:4400"))
+        assert!(
+            text.starts_with("{\n  \"hub\": \"http://127.0.0.1:4400\",\n  \"accessToken\": \"a\","),
+            "{text}"
         );
+        assert_eq!(config.read_token(), Some(token()));
         // No temporary file is left behind.
         let names: Vec<_> = fs::read_dir(config.dir())
             .unwrap()
@@ -270,23 +270,41 @@ mod tests {
             .collect();
         assert_eq!(names.len(), 1, "{names:?}");
 
-        fs::write(config.dir().join("capabilities-127.0.0.1_4400.json"), "{}").unwrap();
-        config.delete_token("127.0.0.1:4400").unwrap();
+        config.delete_token().unwrap();
         assert!(fs::read_dir(config.dir()).unwrap().next().is_none());
-        config.delete_token("127.0.0.1:4400").unwrap();
+        config.delete_token().unwrap();
     }
 
     #[test]
-    fn default_env() {
-        let config = temp_config("default-env");
-        assert_eq!(config.read_default_env(), None);
-        config.write_default_env("develop.example").unwrap();
-        assert_eq!(
-            config.read_default_env().as_deref(),
-            Some("develop.example")
-        );
+    fn an_older_layout_is_not_read() {
+        let config = temp_config("older");
+        fs::create_dir_all(config.dir()).unwrap();
+        // A 0.3.0 token has no hub and no binding.
+        fs::write(
+            config.token_path(),
+            r#"{"env":"127.0.0.1:4400","accessToken":"a","accessExpiresAt":1,"refreshToken":"r","grantId":"g","user":{"id":"u","name":"n"}}"#,
+        )
+        .unwrap();
+        assert_eq!(config.read_token(), None);
+        fs::write(config.dir().join("config.json"), r#"{"env":"x"}"#).unwrap();
+        assert!(!config.trusts("http://127.0.0.1:4400"));
+        config.trust("http://127.0.0.1:4400").unwrap();
+        assert!(config.trusts("http://127.0.0.1:4400"));
+    }
+
+    #[test]
+    fn trusted_hubs_are_a_list() {
+        let config = temp_config("trusted");
+        assert!(!config.trusts("https://a.example"));
+        config.trust("https://a.example").unwrap();
+        config.trust("https://b.example").unwrap();
+        config.trust("https://a.example").unwrap();
+        assert!(config.trusts("https://a.example"));
+        assert!(config.trusts("https://b.example"));
+        let text = fs::read_to_string(config.dir().join("config.json")).unwrap();
+        assert_eq!(text.matches("a.example").count(), 1, "{text}");
         fs::write(config.dir().join("config.json"), "not json").unwrap();
-        assert_eq!(config.read_default_env(), None);
+        assert!(!config.trusts("https://a.example"));
     }
 
     #[cfg(unix)]
@@ -294,9 +312,9 @@ mod tests {
     fn token_is_private() {
         use std::os::unix::fs::PermissionsExt;
         let config = temp_config("private");
-        config.write_token(&token("e")).unwrap();
+        config.write_token(&token()).unwrap();
         let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode(&config.token_path("e")), 0o600);
+        assert_eq!(mode(&config.token_path()), 0o600);
         assert_eq!(mode(config.dir()), 0o700);
     }
 }

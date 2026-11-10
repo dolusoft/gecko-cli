@@ -1,4 +1,4 @@
-//! command-console 1.7.2 `fixtures/remote/sequence/` against the CLI's run: each
+//! command-console `fixtures/remote/sequence/` (1.7.2 and 1.8.0) against the CLI's run: each
 //! example feeds replies and events in order and checks the exit code and a subset of
 //! the `--json` result. The run is the binary's own module, built here by path.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, dead_code)]
@@ -55,10 +55,11 @@ fn contains(whole: &Value, subset: &Value) -> bool {
     }
 }
 
-#[test]
-fn sequences() {
-    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/command-console-1.7.2/remote/sequence");
+/// Runs every example of one fixture folder; returns how many ran.
+fn sequences_of(version: &str) -> usize {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../fixtures/command-console-{version}/remote/sequence"
+    ));
     let mut count = 0;
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
@@ -66,7 +67,7 @@ fn sequences() {
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         for example in examples.as_array().unwrap() {
             let label = format!(
-                "{}/{}",
+                "{version} {}/{}",
                 path.file_name().unwrap().to_string_lossy(),
                 example["name"].as_str().unwrap()
             );
@@ -101,5 +102,12 @@ fn sequences() {
             count += 1;
         }
     }
-    assert_eq!(count, 19);
+    count
+}
+
+#[test]
+fn sequences() {
+    assert_eq!(sequences_of("1.7.2"), 19);
+    // 1.8.0 adds `approval.json`: the `approval` field, `--dry-run` and `--yes`.
+    assert_eq!(sequences_of("1.8.0"), 26);
 }

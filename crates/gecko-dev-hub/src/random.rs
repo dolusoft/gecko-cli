@@ -1,7 +1,4 @@
-//! Codes, secrets and ids from the operating system's random source.
-
-/// No 0/O, 1/I/L, 5/S, 2/Z: a code is read off a screen and typed.
-const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRTUVWXY346789";
+//! Secrets and ids from the operating system's random source.
 
 fn bytes<const N: usize>() -> [u8; N] {
     let mut buffer = [0u8; N];
@@ -10,21 +7,7 @@ fn bytes<const N: usize>() -> [u8; N] {
     buffer
 }
 
-/// A code a person types: `ABCD-EFGH`.
-pub fn code() -> String {
-    let mut text = String::with_capacity(9);
-    for (i, byte) in bytes::<8>().iter().enumerate() {
-        text.push(char::from(
-            CODE_ALPHABET[usize::from(*byte) % CODE_ALPHABET.len()],
-        ));
-        if i == 3 {
-            text.push('-');
-        }
-    }
-    text
-}
-
-/// 24 random bytes, base64url without padding.
+/// 24 random bytes (192 bits), base64url without padding.
 pub fn secret() -> String {
     base64url(&bytes::<24>())
 }
@@ -45,21 +28,8 @@ pub fn uuid() -> String {
     )
 }
 
-/// A code as the user may type it: case and the dash do not matter.
-pub fn normalize_code(value: &str) -> String {
-    let plain: String = value
-        .to_uppercase()
-        .chars()
-        .filter(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
-        .collect();
-    if plain.len() == 8 {
-        format!("{}-{}", &plain[..4], &plain[4..])
-    } else {
-        plain
-    }
-}
-
-fn base64url(input: &[u8]) -> String {
+/// base64url without padding (RFC 4648 §5).
+pub fn base64url(input: &[u8]) -> String {
     const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut text = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
@@ -78,26 +48,6 @@ fn base64url(input: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn codes_use_the_alphabet_and_a_dash() {
-        let code = code();
-        assert_eq!(code.len(), 9);
-        assert_eq!(&code[4..5], "-");
-        assert!(
-            code.bytes()
-                .filter(|b| *b != b'-')
-                .all(|b| CODE_ALPHABET.contains(&b))
-        );
-    }
-
-    #[test]
-    fn typed_codes_are_normalized() {
-        assert_eq!(normalize_code("abcd efgh"), "ABCD-EFGH");
-        assert_eq!(normalize_code("ABCD-EFGH"), "ABCD-EFGH");
-        assert_eq!(normalize_code("abc"), "ABC");
-        assert_eq!(normalize_code(""), "");
-    }
 
     #[test]
     fn base64url_matches_known_values() {

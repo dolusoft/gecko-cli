@@ -71,6 +71,11 @@ pub struct Finished {
     pub suggest: Option<Vec<String>>,
     pub next: Option<Vec<String>>,
     pub help: Option<String>,
+    /// How a change ran (attach spec §5.4): `card` (approved on the card) or `none`
+    /// (the binding's level did not ask); only on a change that ran. A value this CLI
+    /// does not know reads as `none` and does not void the reply (command-console
+    /// 1.8.0).
+    pub approval: Option<String>,
 }
 
 impl Finished {
@@ -344,6 +349,13 @@ fn finished(fields: &Fields, id: String) -> Result<Reply, String> {
         suggest: argv(fields, "suggest")?,
         next: argv(fields, "next")?,
         help: help_name(fields)?,
+        approval: fields.get("approval").map(|approval| {
+            if approval.as_str() == Some("card") {
+                "card".to_owned()
+            } else {
+                "none".to_owned()
+            }
+        }),
     })))
 }
 
@@ -407,5 +419,24 @@ mod tests {
         assert!(matches!(chunk(3), Read::Reply(_)));
         assert!(matches!(chunk(4), Read::Invalid(_)));
         assert!(matches!(chunk(0), Read::Invalid(_)));
+    }
+
+    #[test]
+    fn approval_is_card_or_none() {
+        let finished = |approval: &str| {
+            let text = format!(
+                r#"{{"v":1,"kind":"finished","id":"r","outcome":{{"status":"ok"}},"chunks":0,"bytes":0{approval}}}"#
+            );
+            match read_reply(&text) {
+                Read::Reply(Reply::Finished(finished)) => finished.approval,
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(finished(r#","approval":"card""#).as_deref(), Some("card"));
+        assert_eq!(finished(r#","approval":"none""#).as_deref(), Some("none"));
+        // A later value reads as `none`; the reply is not void.
+        assert_eq!(finished(r#","approval":"policy""#).as_deref(), Some("none"));
+        assert_eq!(finished(r#","approval":1"#).as_deref(), Some("none"));
+        assert_eq!(finished(""), None);
     }
 }

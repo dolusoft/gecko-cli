@@ -9,11 +9,9 @@ Values are milliseconds (`_MS`) or `1` (on). Without the variable, the default a
 
 The tests use these too, but they are for users; the README describes them.
 
-| Variable           | Meaning                                                                                                | Default                                                                                        |
-| ------------------ | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `GECKO_CONFIG_DIR` | Directory of the token and settings files                                                              | Windows `%APPDATA%\gecko-cli`, elsewhere `$XDG_CONFIG_HOME/gecko-cli` or `~/.config/gecko-cli` |
-| `GECKO_BROWSER`    | `none`: no browser is opened, the address is only printed (also the case over SSH and without desktop) | Opened when there is a desktop                                                                 |
-| `GECKO_ENV_<NAME>` | Address alias for `--env <name>`; `<NAME>` in upper case (`GECKO_ENV_STAGE=stage.example.com`)         | None                                                                                           |
+| Variable           | Meaning                                                                          | Default                                                                                        |
+| ------------------ | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `GECKO_CONFIG_DIR` | Directory of `token.json` (the binding's token) and `config.json` (trusted hubs) | Windows `%APPDATA%\gecko-cli`, elsewhere `$XDG_CONFIG_HOME/gecko-cli` or `~/.config/gecko-cli` |
 
 The usual proxy variables are read: `https_proxy`, `http_proxy`,
 `all_proxy`, `no_proxy`, and their upper-case names; when both exist, the lower-case one
@@ -24,20 +22,20 @@ wins. HTTP and WebSocket follow the same rule. Only `http://` proxies are suppor
 | Variable                     | Meaning                                                                                                                 | Default        |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------- |
 | `GECKO_TEST_INTERRUPT_STDIN` | `1`: each `x` written to stdin counts as a Ctrl+C. Windows cannot send SIGINT to a child process, so the tests use this | Off            |
-| `GECKO_TEST_TTY`             | `1`: stdout and stderr count as terminals (colour, progress line, prompts)                                              | Real TTY state |
+| `GECKO_TEST_TTY`             | `1`: stdin, stdout and stderr count as terminals (colour, progress line, the trust prompt of `attach`)                  | Real TTY state |
 | `GECKO_DELIVERY_MARGIN_MS`   | Margin added to the delivery window; if `received` has not come when it ends too, a read exits 4 and a change exits 5   | 2000           |
 | `GECKO_CANCEL_WAIT_MS`       | How long the `cancel` answer is awaited after Ctrl+C                                                                    | 3000           |
 | `GECKO_TRANSPORT`            | `dev`: the development transport is chosen even when the address is not localhost                                       | By the address |
 
 ## Development hub hooks
 
-| Variable                | Meaning                                                                            | Default                           |
-| ----------------------- | ---------------------------------------------------------------------------------- | --------------------------------- |
-| `GECKO_DEV_HUB_RATE`    | Rate limit: average requests per second per grant                                  | 5                                 |
-| `GECKO_DEV_HUB_BURST`   | Burst allowance of the rate limit                                                  | 20 or the rate, whichever is more |
-| `GECKO_DEV_HUB_USERS`   | User list, a JSON array (`[{ "id", "name" }]`)                                     | One test user (`u1`)              |
-| `GECKO_DEV_HUB_TIMINGS` | Timings as JSON in the `DevHubTimings` shape (tests shorten the §5 and §8 windows) | The spec's timings                |
-| `GECKO_DEV_HUB_STDIN`   | `1`: the hub stops when stdin closes (the tests close the process tree this way)   | Off                               |
+| Variable                | Meaning                                                                                                                                                                                                 | Default                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `GECKO_DEV_HUB_RATE`    | Rate limit: average requests per second per grant                                                                                                                                                       | 5                                 |
+| `GECKO_DEV_HUB_BURST`   | Burst allowance of the rate limit                                                                                                                                                                       | 20 or the rate, whichever is more |
+| `GECKO_DEV_HUB_USERS`   | User list, a JSON array (`[{ "id", "name", "terminal" }]`; `terminal: false` has no terminal access)                                                                                                    | One test user (`u1`)              |
+| `GECKO_DEV_HUB_TIMINGS` | Timings as a JSON object in milliseconds: `attachTtlMs`, `suspendMs`, `unloadMs`, `holdMs`, `requestTtlMs`, `accessTtlMs`, `refreshTtlMs`, `heartbeatMs`, `heartbeatMisses` (tests shorten the windows) | The spec's timings                |
+| `GECKO_DEV_HUB_STDIN`   | `1`: the hub stops when stdin closes (the tests close the process tree this way)                                                                                                                        | Off                               |
 
 ## SignalR test hub
 

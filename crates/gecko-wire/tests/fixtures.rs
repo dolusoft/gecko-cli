@@ -1,25 +1,40 @@
-//! The examples published with command-console 1.7.2 (`fixtures/command-console-1.7.2/`)
+//! The examples published with command-console (`fixtures/command-console-<version>/`)
 //! against the CLI's side of the contract: replies and capabilities it reads, the
-//! command name rule and the limits it checks before sending.
+//! command name rule and the limits it checks before sending. Every published version
+//! in the repository runs.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::PathBuf;
 
-use gecko_wire::capabilities::{Capabilities, read_parts};
+use gecko_wire::capabilities::{Capabilities, Effect, read_parts};
 use gecko_wire::class::{Danger, ErrorClass};
 use gecko_wire::reply::{Read, Reply, Status, read_reply};
 use gecko_wire::request::{Input, check_limits, command_name};
 use serde_json::{Map, Value, json};
 
-fn load(file: &str) -> Value {
+/// The fixture folders, oldest first.
+const VERSIONS: [&str; 2] = ["1.7.2", "1.8.0"];
+
+fn load(version: &str, file: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/command-console-1.7.2/remote")
+        .join(format!("../../fixtures/command-console-{version}/remote"))
         .join(file);
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
 }
 
-fn examples(file: &str) -> Vec<Value> {
-    load(file).as_array().unwrap().clone()
+/// The examples of `file` in every version, each with its label (`1.8.0 name`).
+fn examples(file: &str) -> Vec<(String, Value)> {
+    VERSIONS
+        .iter()
+        .flat_map(|version| {
+            load(version, file)
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|example| (format!("{version} {}", name(example)), example.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 fn name(example: &Value) -> &str {
@@ -109,6 +124,9 @@ fn as_read(reply: &Reply) -> Value {
             if let Some(help) = &f.help {
                 map.insert("help".into(), json!(help));
             }
+            if let Some(approval) = &f.approval {
+                map.insert("approval".into(), json!(approval));
+            }
         }
         Reply::HelpResult(h) => {
             map.insert("status".into(), status(h.status));
@@ -157,52 +175,41 @@ fn caps_json(caps: &Capabilities) -> Value {
 
 #[test]
 fn valid_replies_are_read_whole() {
-    for example in examples("valid/replies.json") {
+    for (label, example) in examples("valid/replies.json") {
         match reply_of(&example) {
-            Read::Reply(reply) => {
-                assert_eq!(as_read(&reply), example["read"], "{}", name(&example))
-            }
-            other => panic!("{}: {other:?}", name(&example)),
+            Read::Reply(reply) => assert_eq!(as_read(&reply), example["read"], "{label}"),
+            other => panic!("{label}: {other:?}"),
         }
     }
 }
 
 #[test]
 fn invalid_replies_are_refused() {
-    for example in examples("invalid/replies.json") {
-        assert!(
-            matches!(reply_of(&example), Read::Invalid(_)),
-            "{}",
-            name(&example)
-        );
+    for (label, example) in examples("invalid/replies.json") {
+        assert!(matches!(reply_of(&example), Read::Invalid(_)), "{label}");
     }
 }
 
 #[test]
 fn valid_capabilities_are_read_whole() {
-    for example in examples("valid/capabilities.json") {
+    for (label, example) in examples("valid/capabilities.json") {
         let caps = read_parts(&parts_of(&example)).unwrap();
-        assert_eq!(caps_json(&caps), example["read"], "{}", name(&example));
-        assert!(caps.missing_features().is_empty(), "{}", name(&example));
+        assert_eq!(caps_json(&caps), example["read"], "{label}");
+        assert!(caps.missing_features().is_empty(), "{label}");
         assert_eq!(caps.envelope(), Some(1));
     }
 }
 
 #[test]
 fn invalid_capabilities_are_refused() {
-    for example in examples("invalid/capabilities.json") {
-        assert!(
-            read_parts(&parts_of(&example)).is_err(),
-            "{}",
-            name(&example)
-        );
+    for (label, example) in examples("invalid/capabilities.json") {
+        assert!(read_parts(&parts_of(&example)).is_err(), "{label}");
     }
 }
 
 #[test]
 fn future_messages_from_the_tab() {
-    for example in examples("future/tab-to-cli.json") {
-        let label = name(&example);
+    for (label, example) in examples("future/tab-to-cli.json") {
         let expect = &example["expect"];
         if example.get("parts").is_some() {
             let caps = read_parts(&parts_of(&example)).unwrap();
@@ -211,9 +218,18 @@ fn future_messages_from_the_tab() {
             }
             if let Some(defaults) = expect.get("default") {
                 for (path, value) in defaults.as_object().unwrap() {
-                    assert_eq!(path, "commands.0.danger", "{label}");
-                    assert_eq!(value, "change", "{label}");
-                    assert_eq!(caps.commands[0].danger, Danger::Change, "{label}");
+                    match path.as_str() {
+                        "commands.0.danger" => {
+                            assert_eq!(value, "change", "{label}");
+                            assert_eq!(caps.commands[0].danger, Danger::Change, "{label}");
+                        }
+                        "commands.0.effect" => {
+                            assert_eq!(value, "server", "{label}");
+                            assert_eq!(caps.commands[0].effect(), Effect::Server, "{label}");
+                            assert_eq!(caps_json(&caps)["commands"][0]["effect"], *value);
+                        }
+                        other => panic!("{label}: unknown path {other}"),
+                    }
                 }
             }
             continue;
@@ -239,6 +255,9 @@ fn future_messages_from_the_tab() {
                             value.as_u64().unwrap(),
                             "{label}"
                         ),
+                        "approval" => {
+                            assert_eq!(finished.approval.as_deref(), value.as_str(), "{label}")
+                        }
                         other => panic!("{label}: unknown path {other}"),
                     }
                 }
@@ -258,59 +277,63 @@ fn every_code_has_a_known_class() {
         ("unknown", 5),
         ("cancelled", 1),
     ];
-    for row in examples("error-class.json") {
-        let class: ErrorClass = serde_json::from_value(row["class"].clone()).unwrap();
-        assert_ne!(class, ErrorClass::Unrecognized, "{row}");
-        let expected = table
-            .iter()
-            .find(|(c, _)| *c == row["class"])
-            .map(|(_, code)| *code)
-            .unwrap();
-        assert_eq!(class.exit_code(), expected, "{row}");
+    for version in VERSIONS {
+        for row in load(version, "error-class.json").as_array().unwrap() {
+            let class: ErrorClass = serde_json::from_value(row["class"].clone()).unwrap();
+            assert_ne!(class, ErrorClass::Unrecognized, "{version} {row}");
+            let expected = table
+                .iter()
+                .find(|(c, _)| *c == row["class"])
+                .map(|(_, code)| *code)
+                .unwrap();
+            assert_eq!(class.exit_code(), expected, "{version} {row}");
+        }
     }
 }
 
 #[test]
 fn command_names_on_the_cli_side() {
-    let fixture = load("command-name.json");
-    let mut sensitive = Vec::new();
-    let mut commands = Vec::new();
-    for command in fixture["commands"].as_array().unwrap() {
-        let mut names = vec![command["name"].clone()];
-        names.extend(command["aliases"].as_array().unwrap().iter().cloned());
-        if command["sensitive"] == true {
-            sensitive.extend(names);
-        } else {
-            commands.push(command.clone());
+    for version in VERSIONS {
+        let fixture = load(version, "command-name.json");
+        let mut sensitive = Vec::new();
+        let mut commands = Vec::new();
+        for command in fixture["commands"].as_array().unwrap() {
+            let mut names = vec![command["name"].clone()];
+            names.extend(command["aliases"].as_array().unwrap().iter().cloned());
+            if command["sensitive"] == true {
+                sensitive.extend(names);
+            } else {
+                commands.push(command.clone());
+            }
         }
-    }
-    let parts = vec![
-        json!({
-            "envelopes": [1], "features": [], "revision": "r",
-            "sensitive": sensitive, "commands": commands
-        })
-        .to_string(),
-    ];
-    let caps = read_parts(&parts).unwrap();
-    for row in fixture["rows"].as_array().unwrap() {
-        let label = name(row);
-        let input = if let Some(argv) = row["input"].get("argv") {
-            Input::Argv(serde_json::from_value(argv.clone()).unwrap())
-        } else {
-            Input::Line(row["input"]["line"].as_str().unwrap().to_owned())
-        };
-        let found = command_name(&input);
-        match (&row["cli"]["name"], &row["cli"]["refuse"]) {
-            (Value::String(expected), _) => {
-                assert_eq!(found, Some(expected.as_str()), "{label}");
-                assert!(!caps.is_sensitive(expected), "{label}");
+        let parts = vec![
+            json!({
+                "envelopes": [1], "features": [], "revision": "r",
+                "sensitive": sensitive, "commands": commands
+            })
+            .to_string(),
+        ];
+        let caps = read_parts(&parts).unwrap();
+        for row in fixture["rows"].as_array().unwrap() {
+            let label = format!("{version} {}", name(row));
+            let input = if let Some(argv) = row["input"].get("argv") {
+                Input::Argv(serde_json::from_value(argv.clone()).unwrap())
+            } else {
+                Input::Line(row["input"]["line"].as_str().unwrap().to_owned())
+            };
+            let found = command_name(&input);
+            match (&row["cli"]["name"], &row["cli"]["refuse"]) {
+                (Value::String(expected), _) => {
+                    assert_eq!(found, Some(expected.as_str()), "{label}");
+                    assert!(!caps.is_sensitive(expected), "{label}");
+                }
+                (_, Value::String(why)) if why == "name" => assert_eq!(found, None, "{label}"),
+                (_, Value::String(why)) if why == "sensitive" => {
+                    let found = found.unwrap_or_else(|| panic!("{label}: no name"));
+                    assert!(caps.is_sensitive(found), "{label}");
+                }
+                other => panic!("{label}: {other:?}"),
             }
-            (_, Value::String(why)) if why == "name" => assert_eq!(found, None, "{label}"),
-            (_, Value::String(why)) if why == "sensitive" => {
-                let found = found.unwrap_or_else(|| panic!("{label}: no name"));
-                assert!(caps.is_sensitive(found), "{label}");
-            }
-            other => panic!("{label}: {other:?}"),
         }
     }
 }
@@ -331,30 +354,35 @@ fn request_limits_match_the_tab() {
                 .map(|l| Input::Line(l.to_owned()))
         }
     };
-    for example in examples("valid/cli-request.json") {
+    for (label, example) in examples("valid/cli-request.json") {
         let input = input_of(&example["envelope"]).unwrap();
-        assert!(check_limits(&input).is_ok(), "{}", name(&example));
+        assert!(check_limits(&input).is_ok(), "{label}");
     }
-    for label in [
-        "argv-empty",
-        "argv-257-items",
-        "argv-item-4001-code-points",
-        "argv-total-4001-code-points",
-        "line-4001-code-points",
-    ] {
-        let example = examples("invalid/cli-request.json")
-            .into_iter()
-            .find(|e| name(e) == label)
-            .unwrap();
-        let input = input_of(&example["envelope"]).unwrap();
-        assert!(check_limits(&input).is_err(), "{label}");
+    for version in VERSIONS {
+        let invalid = load(version, "invalid/cli-request.json");
+        let find = |label: &str| {
+            invalid
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| name(e) == label)
+                .unwrap()
+                .clone()
+        };
+        for label in [
+            "argv-empty",
+            "argv-257-items",
+            "argv-item-4001-code-points",
+            "argv-total-4001-code-points",
+            "line-4001-code-points",
+        ] {
+            let input = input_of(&find(label)["envelope"]).unwrap();
+            assert!(check_limits(&input).is_err(), "{version} {label}");
+        }
+        let empty_name = find("argv-empty-name");
+        assert_eq!(
+            command_name(&input_of(&empty_name["envelope"]).unwrap()),
+            None
+        );
     }
-    let empty_name = examples("invalid/cli-request.json")
-        .into_iter()
-        .find(|e| name(e) == "argv-empty-name")
-        .unwrap();
-    assert_eq!(
-        command_name(&input_of(&empty_name["envelope"]).unwrap()),
-        None
-    );
 }

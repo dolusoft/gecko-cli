@@ -1,5 +1,5 @@
 // The SignalR transport of the real hub (`command-relay/hub`, #1966).
-// SKELETON: the backend side is gecko-project-backend#1974. What is known
+// SKELETON: the backend side is #1974. What is known
 // today is written here; the method names follow §10.3 and are not final.
 //
 // TODO(#1974): the hub method and event names, the negotiate address, and
@@ -52,6 +52,6 @@ export async function connectSignalR(
 ): Promise<Transport> {
   void options
   throw new Error(
-    'The SignalR transport is not ready yet (gecko-project-backend#1974). Use the development hub: gecko dev-hub, then gecko login --env 127.0.0.1:4400.'
+    'The SignalR transport is not ready yet (backend #1974). Use the development hub: gecko dev-hub, then gecko login --env 127.0.0.1:4400.'
   )
 }

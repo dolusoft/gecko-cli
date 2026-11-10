@@ -1,4 +1,4 @@
-//! Which proxy a connection goes through (docs/rust-migration.md §7.3, F30).
+//! Which proxy a connection goes through (spec §7.3, F30).
 //!
 //! One rule for every connection the CLI opens, HTTP and WebSocket alike, read from the
 //! usual variables: `https_proxy`/`HTTPS_PROXY` for `https`/`wss` addresses,

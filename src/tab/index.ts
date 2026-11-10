@@ -1,8 +1,7 @@
 // The browser side of the development hub (`@dolusoft/gecko-cli/tab-client`):
 // what a Gecko tab says to the hub. It runs in a browser and in Node 22+
-// (the platform WebSocket), so frontendx's pages and tests and this
-// repository's fake tab use the same calls. docs/browser-side.md describes
-// the messages.
+// (the platform WebSocket), so Gecko's pages and tests and this
+// repository's fake tab use the same calls. The types below are the messages.
 
 import type { CliReply } from '@dolusoft/command-protocol'
 

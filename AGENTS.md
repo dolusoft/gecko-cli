@@ -4,7 +4,9 @@ Bir şeyi değiştirmeden önce oku. Kısa tutuldu; ayrıntı bağlantılı dosy
 
 ## Ne bu repo
 
-`gecko` CLI'ı ve masaüstü CLI spec'inin (frontend-v2-design `design/desktop-cli.md`, 3. taslak) §10.3 sözleşmesini uygulayan geliştirme hub'ı. Spec kanoniktir; buradaki davranış ondan sapıyorsa sapma PR'da ve [CHANGELOG.md](CHANGELOG.md)'de yazılır.
+`gecko` CLI'ı ve masaüstü CLI spec'inin §10.3 sözleşmesini uygulayan geliştirme hub'ı. Spec kanoniktir; buradaki davranış ondan sapıyorsa sapma PR'da yazılır.
+
+Repo public (MIT). Spec ve geçiş planı Dolusoft'un iç belgeleridir, repoda yoktur: kod yorumlarındaki `§` numaraları spec'in, `spec §7.x` geçiş planının, `#1974` Gecko backend'inin hub kaydının, `K1`, `F30` gibi kodlar geçiş planındaki kararların kimliğidir. Repoya iç belge, özel repo bağlantısı ya da müşteri bilgisi girmez.
 
 ## Düzen
 
@@ -18,11 +20,11 @@ Bir şeyi değiştirmeden önce oku. Kısa tutuldu; ayrıntı bağlantılı dosy
 
 ## Rust (geçiş sürüyor)
 
-CLI Rust'a taşınıyor; plan ve kararlar [docs/rust-migration.md](docs/rust-migration.md). Adım 5'e kadar ürün Node kodudur; Rust ikilisi bugün `login`, `logout`, `attach`, `detach`, `status`, `help` ve sekmeye satır göndermeyi yapar (command-console 1.7.0; yalnız geliştirme hub'ına karşı).
+CLI Rust'a taşınıyor (plan iç belgede). Adım 5'e kadar ürün Node kodudur; Rust ikilisi bugün `login`, `logout`, `attach`, `detach`, `status`, `help` ve sekmeye satır göndermeyi yapar (command-console 1.7.0; yalnız geliştirme hub'ına karşı).
 
 - `crates/gecko/`: ikili. `args.rs` seçenekler (`args_os`, geçersiz Unicode'da kod 2), `main.rs` yardım, sürüm, `dev-hub` anahtarı ve komut dağıtımı; `own.rs` `login`/`logout`; `binding.rs` `attach`/`detach`/`status`; `help.rs` `gecko help` (`help-request`, sekmenin metni ya da JSON sonucu); `line.rs` sekmeye giden satır (ön süzgeç: hassas ad CLI'dan çıkmaz, listede olmayan addan yalnız ad gider; yetenek listesi, gönderim, bekleyiş); `run.rs` gönderilmiş isteğin saf durum makinesi (cevaplar, kopma, teslim süresi, Ctrl+C girer, sonuç çıkar; `tests/sequence.rs` 1.7.0 `sequence/` örneklerini buna koşar); `session.rs` hub oturumu, kapanış nedeninin çıkış koduna eşlenmesi, eşleştirme; `auth.rs` cihaz girişi, yenileme, iptal; `config.rs` dosyalar (Node ile aynı ad ve JSON: iki ikili birbirinin girişini okur); `output.rs` sonuç, çıkış kodları, kabuk tırnaklaması, bekleme göstergesi; `format.rs` `data`'nın düz görünümü (tablo, ızgara, `key: value`); `interrupt.rs` Ctrl+C; `browser.rs`.
 - `crates/gecko-wire/`: sekmeyle sözleşme (command-console 1.7.0) ve `--json` için ASCII JSON yazıcısı. `reply.rs` sekmenin cevaplarını alan alan okur (bilinmeyen `kind` atlanır, bilinmeyen `status`/`class` tanımlı varsayılana düşer); `request.rs` komut adı kuralı, gönderim öncesi sınırlar ve zarflar; `capabilities.rs` parçalı yetenek listesi, gereken `features`, `minCli`. `tests/fixtures.rs` `fixtures/command-console-1.7.0/` örneklerini koşar; o klasör yayın ekinden olduğu gibi kopyalanır, elle düzenlenmez ([fixtures/README.md](fixtures/README.md)).
-- `crates/gecko-hub-client/`: `Transport` trait'i (`status`, `pair`, `send`, `detach`, `next_event`), anlamsal `Closed` nedenleri, `HubError`, `HubEvent`. `hub.rs` hub'ın kendi cevapları (`HubStatus`, `Binding`, `PairCode`; bilinmeyen durum `Unknown`). `dev.rs` geliştirme hub'ının JSON çerçeveleri (yalnız localhost); `select.rs` taşıma seçimi (`GECKO_TRANSPORT`); `signalr/` elle yazılmış dar SignalR istemcisi ([docs/signalr-trial.md](docs/signalr-trial.md)); `tcp.rs` hızlı reddedilen loopback bağlantısı (Windows, tek `unsafe`); `net.rs` TCP/TLS ve vekil tüneli; `proxy.rs` `*_proxy`/`no_proxy` kuralı.
+- `crates/gecko-hub-client/`: `Transport` trait'i (`status`, `pair`, `send`, `detach`, `next_event`), anlamsal `Closed` nedenleri, `HubError`, `HubEvent`. `hub.rs` hub'ın kendi cevapları (`HubStatus`, `Binding`, `PairCode`; bilinmeyen durum `Unknown`). `dev.rs` geliştirme hub'ının JSON çerçeveleri (yalnız localhost); `select.rs` taşıma seçimi (`GECKO_TRANSPORT`); `signalr/` elle yazılmış dar SignalR istemcisi (hazır crate token'ı adreste taşıdığı için); `tcp.rs` hızlı reddedilen loopback bağlantısı (Windows, tek `unsafe`); `net.rs` TCP/TLS ve vekil tüneli; `proxy.rs` `*_proxy`/`no_proxy` kuralı.
 - `crates/gecko-dev-hub/`: `dev-hub` cargo özelliğinin arkasında (K1). Varsayılan derleme özelliği açar; sürüm derlemesi `--no-default-features` ile yapılır ve "this build has no dev hub" der.
 - `tests/signalr-hub/`: SignalR istemci testleri için en küçük ASP.NET Core hub'ı.
 - Ortam değişkenleri ve test kancaları: [docs/test-hooks.md](docs/test-hooks.md). Rust aynı adları okur.
@@ -50,7 +52,7 @@ cargo test --workspace --no-default-features
 - CLI'nın açılış yolu ağ ve hub modülü yüklemez; `pnpm measure:startup` `gecko help` için 300 ms sınırını denetler.
 - `stdout` yalnız sonuç; bilgi `stderr`'e. `--json` ASCII.
 - Token yalnız `Authorization` başlığında; asla adreste.
-- Kod ve kod yorumları İngilizce; commit mesajı, PR ve `docs/` Türkçe. README İngilizce ve kısa (K6; Rust ürünüyle, adım 5'te yeniden yazılır). Makine anahtarları İngilizce.
+- Kod ve kod yorumları İngilizce; commit mesajı ve PR Türkçe. README, CHANGELOG, SECURITY ve `docs/` İngilizce ve kısa (K6). Makine anahtarları İngilizce.
 
 ## Dallar ve PR
 

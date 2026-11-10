@@ -1,4 +1,4 @@
-//! The SignalR client (docs/rust-migration.md §7.4) against tests/signalr-hub.
+//! The SignalR client (spec §7.4) against tests/signalr-hub.
 //!
 //! Needs a running hub with short keep-alive settings:
 //!   TEST_HUB_KEEPALIVE_MS=500 TEST_HUB_CLIENT_TIMEOUT_MS=2000 SignalRTestHub --urls http://127.0.0.1:5199

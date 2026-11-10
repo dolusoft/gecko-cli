@@ -1,4 +1,4 @@
-# Rust workspace of the gecko CLI (docs/rust-migration.md §7). The Node code in src/
+# Rust workspace of the gecko CLI (spec §7). The Node code in src/
 # stays until step 5; the two do not share files.
 [workspace]
 resolver = "3"
@@ -9,6 +9,7 @@ version = "0.3.0-dev.0"
 edition = "2024"
 rust-version = "1.95"
 publish = false
+license = "MIT"
 repository = "https://github.com/dolusoft/gecko-cli"
 
 [workspace.dependencies]
@@ -17,7 +18,7 @@ gecko-hub-client = { path = "crates/gecko-hub-client" }
 gecko-wire = { path = "crates/gecko-wire" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
-# Network stack (docs/rust-migration.md §7.3): rustls with ring and the operating
+# Network stack (spec §7.3): rustls with ring and the operating
 # system's verifier; no native-tls, no aws-lc.
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 percent-encoding = "2"

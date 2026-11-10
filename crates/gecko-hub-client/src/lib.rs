@@ -1,10 +1,10 @@
-//! The CLI's side of a hub connection (docs/rust-migration.md §7.2).
+//! The CLI's side of a hub connection (spec §7.2).
 //!
 //! A transport carries opaque envelopes; it never reads the tab's payload. Hub errors come
 //! back as values (`HubError`), and the end of a connection comes back as a reason
 //! (`Closed`) rather than a close code (B18). Two transports: the development hub
 //! (WebSocket frames, step 4b) and SignalR (`signalr`, the narrow client chosen in step
-//! 4a, docs/signalr-trial.md). Neither reconnects, so a command is never sent twice.
+//! 4a). Neither reconnects, so a command is never sent twice.
 
 pub mod dev;
 pub mod hub;
@@ -82,7 +82,7 @@ pub enum CallError {
     TimedOut,
 }
 
-/// What the hub pushes to the CLI (docs/browser-side.md, #1974 methods table).
+/// What the hub pushes to the CLI (#1974 methods table).
 #[derive(Debug)]
 pub enum HubEvent {
     /// `reply`: a message from the bound tab, unread by the hub.

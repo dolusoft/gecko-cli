@@ -1,4 +1,4 @@
-//! What travels between the gecko CLI and the Gecko tab (docs/rust-migration.md §5;
+//! What travels between the gecko CLI and the Gecko tab (spec §5;
 //! command-console 1.7.0 `docs/remote-contract.md`), and the ASCII JSON writer for
 //! `--json` output.
 //!

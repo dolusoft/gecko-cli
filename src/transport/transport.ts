@@ -1,6 +1,6 @@
 // What the CLI says to the hub, whatever carries it (§10.4): the development
 // hub over plain WebSocket now, the real hub over SignalR when
-// gecko-project-backend#1974 lands. Only the transport changes then.
+// the backend hub (#1974) lands. Only the transport changes then.
 
 import type { CliReply } from '@dolusoft/command-protocol'
 

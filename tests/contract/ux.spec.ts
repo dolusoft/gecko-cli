@@ -1,4 +1,4 @@
-// The UX round (frontend-v2-design design/desktop-cli-ux.md): `gecko status`
+// The UX round: `gecko status`
 // (U1), the wait indicator (U3), typo help (U5) and the robustness items
 // (U9), against the development hub as a real process.
 

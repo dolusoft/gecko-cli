@@ -230,6 +230,7 @@ dependencies = [
  "futures-util",
  "gecko-dev-hub",
  "gecko-hub-client",
+ "gecko-testkit",
  "gecko-wire",
  "reqwest",
  "serde",
@@ -271,6 +272,18 @@ dependencies = [
  "tokio-tungstenite",
  "url",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "gecko-testkit"
+version = "0.3.0"
+dependencies = [
+ "futures-util",
+ "gecko-dev-hub",
+ "gecko-wire",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]

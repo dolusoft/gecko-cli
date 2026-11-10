@@ -92,6 +92,34 @@ mod tests {
     }
 
     #[test]
+    fn every_closed_reason_is_described() {
+        let cases = [
+            (Closed::Handshake("bad hello".into()), "bad hello"),
+            (Closed::Transport("reset".into()), "reset"),
+            (
+                Closed::Server(Some("4499 odd".into())),
+                "closed by the hub (4499 odd)",
+            ),
+            (Closed::Server(None), "closed by the hub"),
+            (Closed::ServerTimeout, "the hub stopped answering"),
+            (Closed::Local, "closed"),
+            (Closed::Unauthorized, "unauthorized"),
+            (Closed::Busy, "busy"),
+            (Closed::Revoked, "revoked"),
+        ];
+        for (closed, text) in cases {
+            assert_eq!(describe(&closed), text);
+        }
+        assert_eq!(
+            call_failure(CallError::Closed(Closed::ServerTimeout), false),
+            Failure::new(
+                "connection-lost",
+                "the hub connection was lost: the hub stopped answering"
+            )
+        );
+    }
+
+    #[test]
     fn call_failures() {
         let hub = CallError::Hub(HubError {
             code: "no-binding".into(),

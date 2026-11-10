@@ -2,8 +2,8 @@
 //! bound browser tab, and the result comes back (docs/rust-migration.md).
 //!
 //! Step 4b in progress: options, help, version, the dev-hub switch, login, logout,
-//! attach, detach and status. Help and the line path follow; until step 5 the Node build is the
-//! product.
+//! attach, detach, status and the line path (command-console 1.7.0). `gecko help`
+//! follows; until step 5 the Node build is the product.
 
 mod args;
 mod auth;
@@ -11,8 +11,10 @@ mod binding;
 mod browser;
 mod config;
 mod interrupt;
+mod line;
 mod output;
 mod own;
+mod run;
 mod session;
 
 use std::ffi::OsString;
@@ -79,6 +81,7 @@ fn run(args: impl IntoIterator<Item = OsString>, out: &mut dyn Write, err: &mut 
         }
         Action::DevHub(rest) => dev_hub(&rest, err),
         Action::Command(argv) => command(&argv, &options, out, err),
+        Action::Line(line) => tab_line(None, Some(line), &options, out, err),
     }
 }
 
@@ -86,17 +89,50 @@ fn run(args: impl IntoIterator<Item = OsString>, out: &mut dyn Write, err: &mut 
 fn command(argv: &[String], options: &Options, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     let name = argv[0].as_str();
     let rest = &argv[1..];
-    if own::NAMES.contains(&name) && rest.iter().any(|a| a == "--help" || a == "-h") {
+    if !own::NAMES.contains(&name) {
+        return tab_line(Some(argv.to_vec()), None, options, out, err);
+    }
+    if rest.iter().any(|a| a == "--help" || a == "-h") {
         let _ = out.write_all(own::usage(name).unwrap_or_default().as_bytes());
         return 0;
     }
-    if !matches!(name, "login" | "logout" | "attach" | "detach" | "status") {
+    if name == "help" {
         let _ = writeln!(
             err,
-            "gecko {VERSION}: `{name}` is not available in the Rust build yet (step 4b); use the Node build."
+            "gecko {VERSION}: `help` is not available in the Rust build yet (step 4b); use the Node build."
         );
         return 2;
     }
+    execute(options, out, err, Job::Own { name, rest })
+}
+
+/// A line for the bound tab, from argv or `--line`.
+fn tab_line(
+    argv: Option<Vec<String>>,
+    line: Option<String>,
+    options: &Options,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let auto_pair = line::may_auto_pair(options.json, line.is_some());
+    let input = line::input_of(argv, line);
+    execute(options, out, err, Job::Line { input, auto_pair })
+}
+
+/// What one call does once the runtime is up.
+enum Job<'a> {
+    Own {
+        name: &'a str,
+        rest: &'a [String],
+    },
+    Line {
+        input: Result<gecko_wire::request::Input, Failure>,
+        auto_pair: bool,
+    },
+}
+
+/// Runs one job on a single-thread runtime and prints its result.
+fn execute(options: &Options, out: &mut dyn Write, err: &mut dyn Write, job: Job<'_>) -> u8 {
     let mut io = Io {
         out,
         err,
@@ -113,12 +149,26 @@ fn command(argv: &[String], options: &Options, out: &mut dyn Write, err: &mut dy
     let config = Config::from_env();
     let result = runtime.block_on(async {
         let mut interrupts = Interrupts::listen();
-        match name {
-            "login" => own::login(rest, options, &config, &mut io, &mut interrupts).await,
-            "logout" => own::logout(rest, options, &config).await,
-            "attach" => binding::attach(rest, options, &config, &mut io, &mut interrupts).await,
-            "detach" => binding::detach(rest, options, &config).await,
-            _ => binding::status(rest, options, &config).await,
+        let (io, config, interrupts) = (&mut io, &config, &mut interrupts);
+        match job {
+            Job::Own { name, rest } => match name {
+                "login" => own::login(rest, options, config, io, interrupts).await,
+                "logout" => own::logout(rest, options, config).await,
+                "attach" => binding::attach(rest, options, config, io, interrupts).await,
+                "detach" => binding::detach(rest, options, config).await,
+                _ => binding::status(rest, options, config).await,
+            },
+            Job::Line { input, auto_pair } => {
+                let this = line::LineRun {
+                    options,
+                    config,
+                    auto_pair,
+                };
+                match input {
+                    Ok(input) => line::run(this, input, io, interrupts).await,
+                    Err(failure) => Err(failure),
+                }
+            }
         }
     });
     // A blocking stdin read (the test interrupt hook) must not hold the process open.

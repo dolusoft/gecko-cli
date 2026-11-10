@@ -32,13 +32,21 @@ pub fn exit_code_of(code: &str) -> u8 {
         | "not-delivered" | "rate-limited" | "invalid-code" | "expired" | "other-account" => 4,
         "unknown-outcome" => 5,
         "not-logged-in" | "unauthorized" | "token-expired" | "revoked" => 6,
-        "cancelled" => 130,
+        "cancelled" | "cancel-requested" | "cancelled-before-start" => 130,
         _ => 1,
     }
 }
 
+/// The view a command ran in (`finished.view`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ViewInfo {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
 /// One result, as `--json` writes it.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Outcome {
     pub v: u8,
@@ -47,53 +55,96 @@ pub struct Outcome {
     pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Why a binding ended (`gone`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view: Option<ViewInfo>,
+    /// Whether the page was hidden when it accepted the request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    /// The tab's data age: a number, or `null` when it does not know.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_age_ms: Option<serde_json::Value>,
     /// The process exit code; written on an error only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<u8>,
     pub preview: bool,
+    /// Argv the tab offers (a preview's confirmed form, the nearest name); never run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggest: Option<Vec<String>>,
+    /// Argv of the next page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next: Option<Vec<String>>,
+    /// The command whose help an `invalid-args` points to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
     pub complete: bool,
     pub untrusted: Vec<&'static str>,
 }
 
 impl Outcome {
-    /// A finished own command: one summary line.
-    pub fn done(summary: impl Into<String>) -> Outcome {
+    fn base(status: &'static str) -> Outcome {
         Outcome {
             v: 1,
-            status: "ok",
+            status,
             code: None,
             message: None,
-            summary: Some(summary.into()),
+            reason: None,
+            summary: None,
             data: None,
+            view: None,
+            hidden: None,
+            data_age_ms: None,
             exit_code: None,
             preview: false,
+            suggest: None,
+            next: None,
+            help: None,
             complete: true,
             untrusted: Vec::new(),
         }
     }
 
-    pub fn failed(failure: &Failure) -> Outcome {
-        let exit = exit_code_of(&failure.code);
+    /// A finished command with nothing but its summary line.
+    pub fn done(summary: impl Into<String>) -> Outcome {
         Outcome {
-            v: 1,
-            status: match exit {
+            summary: Some(summary.into()),
+            ..Outcome::base("ok")
+        }
+    }
+
+    /// An ok result with no fields set yet.
+    pub fn ok() -> Outcome {
+        Outcome::base("ok")
+    }
+
+    /// A failure with its exit code given (the tab's class, or the CLI's own
+    /// observation, §5.6): 5 is `unknown` and incomplete, 130 `cancelled`.
+    pub fn error(code: impl Into<String>, message: impl Into<String>, exit: u8) -> Outcome {
+        Outcome {
+            code: Some(code.into()),
+            message: Some(message.into()),
+            exit_code: Some(exit),
+            complete: exit != 5,
+            ..Outcome::base(match exit {
                 5 => "unknown",
                 130 => "cancelled",
                 _ => "error",
-            },
-            code: Some(failure.code.clone()),
-            message: Some(failure.message.clone()),
-            summary: None,
-            data: None,
-            exit_code: Some(exit),
-            preview: false,
-            complete: exit != 5,
-            untrusted: Vec::new(),
+            })
         }
+    }
+
+    pub fn failed(failure: &Failure) -> Outcome {
+        Outcome::error(
+            failure.code.clone(),
+            failure.message.clone(),
+            exit_code_of(&failure.code),
+        )
     }
 
     pub fn exit(&self) -> u8 {
@@ -115,6 +166,84 @@ pub fn escape_controls(text: &str) -> String {
         }
     }
     out
+}
+
+/// One argument as the reader's shell takes it back: PowerShell on Windows, a POSIX
+/// shell elsewhere. A plain word stays as it is; anything else goes in single quotes.
+pub fn quote_arg(arg: &str) -> String {
+    if cfg!(windows) {
+        quote_powershell(arg)
+    } else {
+        quote_posix(arg)
+    }
+}
+
+fn plain_word(arg: &str, extra: &str) -> bool {
+    !arg.is_empty()
+        && arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._-/:=+".contains(c) || extra.contains(c))
+}
+
+pub fn quote_powershell(arg: &str) -> String {
+    // `@` and `,` mean something to PowerShell; `--%` stops its parsing.
+    if plain_word(arg, "") && arg != "--%" {
+        arg.to_owned()
+    } else {
+        format!("'{}'", arg.replace('\'', "''"))
+    }
+}
+
+pub fn quote_posix(arg: &str) -> String {
+    if plain_word(arg, ",@%") {
+        arg.to_owned()
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
+    }
+}
+
+/// An argv as one line for the reader's shell.
+pub fn quote_argv(argv: &[String]) -> String {
+    argv.iter()
+        .map(|a| quote_arg(a))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The plain text of an ok result for stdout.
+fn plain_text(outcome: &Outcome) -> String {
+    let mut lines = Vec::new();
+    let summary = outcome.summary.as_deref().map(escape_controls);
+    if outcome.preview {
+        let head = format!("Preview: {}", summary.unwrap_or_default());
+        lines.push(match &outcome.suggest {
+            Some(argv) => format!(
+                "{head}. To run it: gecko {}",
+                escape_controls(&quote_argv(argv))
+            ),
+            None => head,
+        });
+    } else if let Some(summary) = summary {
+        lines.push(summary);
+    }
+    if let Some(data) = &outcome.data {
+        let text = serde_json::to_string_pretty(data).unwrap_or_default();
+        lines.push(escape_controls(&text));
+    }
+    if !outcome.complete {
+        lines.push("(the result arrived incomplete; no data printed)".to_owned());
+    }
+    if let Some(next) = &outcome.next {
+        lines.push(format!(
+            "More: gecko {}",
+            escape_controls(&quote_argv(next))
+        ));
+    }
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", lines.join("\n"))
+    }
 }
 
 /// Whether a stream counts as a terminal; `GECKO_TEST_TTY=1` says yes (docs/test-hooks.md).
@@ -166,9 +295,7 @@ impl Io<'_> {
                 .unwrap_or_else(|_| "{\"v\":1,\"status\":\"error\"}".to_owned());
             let _ = writeln!(self.out, "{text}");
         } else if outcome.status == "ok" {
-            if let Some(summary) = &outcome.summary {
-                let _ = writeln!(self.out, "{}", escape_controls(summary));
-            }
+            let _ = self.out.write_all(plain_text(outcome).as_bytes());
         } else {
             let head = match &outcome.code {
                 Some(code) => format!("error ({code})"),
@@ -177,6 +304,20 @@ impl Io<'_> {
             let head = self.paint(31, &head);
             let message = escape_controls(outcome.message.as_deref().unwrap_or(""));
             let _ = writeln!(self.err, "{head}: {message}");
+            if let Some(suggest) = &outcome.suggest {
+                let _ = writeln!(
+                    self.err,
+                    "Did you mean: gecko {}",
+                    escape_controls(&quote_argv(suggest))
+                );
+            }
+            if let Some(help) = &outcome.help {
+                let _ = writeln!(
+                    self.err,
+                    "Usage: gecko help {}",
+                    escape_controls(&quote_argv(std::slice::from_ref(help)))
+                );
+            }
         }
         let _ = self.out.flush();
         outcome.exit()
@@ -254,6 +395,47 @@ mod tests {
         assert_eq!(
             out,
             "{\"v\":1,\"status\":\"error\",\"code\":\"not-logged-in\",\"message\":\"not signed in\",\"exitCode\":6,\"preview\":false,\"complete\":true,\"untrusted\":[]}\n"
+        );
+    }
+
+    #[test]
+    fn quoting() {
+        assert_eq!(quote_posix("tasks.list"), "tasks.list");
+        assert_eq!(quote_posix("a b"), "'a b'");
+        assert_eq!(quote_posix("it's"), "'it'\\''s'");
+        assert_eq!(quote_posix(""), "''");
+        assert_eq!(quote_powershell("--limit=5"), "--limit=5");
+        assert_eq!(quote_powershell("@x"), "'@x'");
+        assert_eq!(quote_powershell("it's"), "'it''s'");
+        assert_eq!(quote_powershell("--%"), "'--%'");
+    }
+
+    #[test]
+    fn plain_result_lines() {
+        let mut preview = Outcome::ok();
+        preview.preview = true;
+        preview.summary = Some("3 tasks would close".into());
+        preview.suggest = Some(vec!["tasks.close".into(), "--confirm".into()]);
+        let (_, out, _) = render(&preview, false);
+        assert_eq!(
+            out,
+            "Preview: 3 tasks would close. To run it: gecko tasks.close --confirm\n"
+        );
+
+        let mut page = Outcome::ok();
+        page.data = Some(serde_json::json!({ "n": 1 }));
+        page.next = Some(vec!["tasks.list".into(), "--cursor".into(), "2".into()]);
+        let (_, out, _) = render(&page, false);
+        assert_eq!(out, "{\n  \"n\": 1\n}\nMore: gecko tasks.list --cursor 2\n");
+
+        let mut unknown = Outcome::error("unknown-command", "unknown command: tsks", 2);
+        unknown.suggest = Some(vec!["tasks.list".into()]);
+        unknown.help = Some("tasks.list".into());
+        let (code, out, err) = render(&unknown, false);
+        assert_eq!((code, out.as_str()), (2, ""));
+        assert_eq!(
+            err,
+            "error (unknown-command): unknown command: tsks\nDid you mean: gecko tasks.list\nUsage: gecko help tasks.list\n"
         );
     }
 

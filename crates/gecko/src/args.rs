@@ -11,6 +11,8 @@ use std::ffi::OsString;
 pub struct Options {
     pub json: bool,
     pub env: Option<String>,
+    /// `--view <id>`: the view the command runs in.
+    pub view: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -21,13 +23,21 @@ pub enum Action {
     DevHub(Vec<String>),
     /// Any other command name and its arguments.
     Command(Vec<String>),
+    /// `--line "<line>"`, or `--line -` (from stdin): sent as typed.
+    Line(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ArgError {
-    NotUnicode { position: usize },
+    NotUnicode {
+        position: usize,
+    },
     MissingValue(&'static str),
     UnknownOption(String),
+    /// `--line` and a command name together.
+    LineAndCommand,
+    /// A CLI option right after the command name (B15); carries the fixed order.
+    Misplaced(String),
 }
 
 impl std::fmt::Display for ArgError {
@@ -41,8 +51,38 @@ impl std::fmt::Display for ArgError {
                 f,
                 "unknown option {option}; options of a command go after its name"
             ),
+            ArgError::LineAndCommand => {
+                write!(f, "--line takes the whole line; give no command after it")
+            }
+            ArgError::Misplaced(fixed) => {
+                write!(f, "CLI options come before the command: {fixed}")
+            }
         }
     }
+}
+
+/// Options the CLI keeps; right after a command name they are a mistake (B15).
+const CLI_ONLY: [&str; 3] = ["--json", "--out", "--line"];
+
+/// `gecko tasks.list --json`: the first word after the command name is a CLI option.
+/// Only that position is checked: elsewhere it may be a field's value (§5.1).
+fn misplaced(argv: &[String]) -> Option<String> {
+    let word = argv.get(1)?;
+    let flag = word.split('=').next().unwrap_or("");
+    if !CLI_ONLY.contains(&flag) {
+        return None;
+    }
+    let takes_value = flag != "--json" && !word.contains('=');
+    let mut moved = vec![word.clone()];
+    if takes_value {
+        moved.push(argv.get(2).cloned().unwrap_or_else(|| "<value>".to_owned()));
+    }
+    let skip = if takes_value { 3 } else { 2 };
+    let mut fixed = vec!["gecko".to_owned()];
+    fixed.extend(moved);
+    fixed.push(argv[0].clone());
+    fixed.extend(argv.iter().skip(skip).cloned());
+    Some(fixed.join(" "))
 }
 
 /// Parses the arguments after the program name.
@@ -63,36 +103,61 @@ where
     }
 
     let mut options = Options::default();
-    let mut rest = words.into_iter();
+    let mut line = None;
+    let mut rest = words.into_iter().peekable();
     while let Some(word) = rest.next() {
-        match word.as_str() {
-            "--help" | "-h" => return Ok((options, Action::Help)),
-            "--version" | "-v" => return Ok((options, Action::Version)),
-            "--json" => options.json = true,
-            "--env" => match rest.next() {
-                Some(value) => options.env = Some(value),
-                None => return Err(ArgError::MissingValue("--env")),
-            },
-            _ if word.starts_with("--env=") => {
-                options.env = Some(word["--env=".len()..].to_owned());
+        let (name, inline) = match word.split_once('=') {
+            Some((name, value)) if name.starts_with("--") => {
+                (name.to_owned(), Some(value.to_owned()))
             }
+            _ => (word.clone(), None),
+        };
+        let mut value = |option: &'static str| match inline.clone().or_else(|| rest.next()) {
+            Some(value) => Ok(value),
+            None => Err(ArgError::MissingValue(option)),
+        };
+        match name.as_str() {
+            "--help" | "-h" if inline.is_none() => return Ok((options, Action::Help)),
+            "--version" | "-v" if inline.is_none() => return Ok((options, Action::Version)),
+            "--json" if inline.is_none() => options.json = true,
+            "--env" => options.env = Some(value("--env")?),
+            "--view" => options.view = Some(value("--view")?),
+            "--line" => line = Some(value("--line")?),
+            "--" => break,
             _ if word.starts_with('-') && word.len() > 1 => {
-                return Err(ArgError::UnknownOption(word));
+                return Err(ArgError::UnknownOption(name));
             }
             _ => {
-                let tail: Vec<String> = rest.collect();
-                let action = if word == "dev-hub" {
-                    Action::DevHub(tail)
-                } else {
-                    let mut argv = vec![word];
-                    argv.extend(tail);
-                    Action::Command(argv)
-                };
-                return Ok((options, action));
+                let mut argv = vec![word];
+                argv.extend(rest.by_ref());
+                return finish(options, line, argv);
             }
         }
     }
-    Ok((options, Action::Help))
+    finish(options, line, rest.collect())
+}
+
+fn finish(
+    options: Options,
+    line: Option<String>,
+    argv: Vec<String>,
+) -> Result<(Options, Action), ArgError> {
+    if let Some(line) = line {
+        if !argv.is_empty() {
+            return Err(ArgError::LineAndCommand);
+        }
+        return Ok((options, Action::Line(line)));
+    }
+    let Some(first) = argv.first() else {
+        return Ok((options, Action::Help));
+    };
+    if first == "dev-hub" {
+        return Ok((options, Action::DevHub(argv[1..].to_vec())));
+    }
+    if let Some(fixed) = misplaced(&argv) {
+        return Err(ArgError::Misplaced(fixed));
+    }
+    Ok((options, Action::Command(argv)))
 }
 
 #[cfg(test)]
@@ -118,14 +183,56 @@ mod tests {
 
     #[test]
     fn options_stop_at_the_command_name() {
-        let (options, action) =
-            run(&["--json", "--env", "dev", "tasks.list", "--json", "--help"]).unwrap();
+        let (options, action) = run(&[
+            "--json",
+            "--env",
+            "dev",
+            "tasks.list",
+            "--q",
+            "--json",
+            "--help",
+        ])
+        .unwrap();
         assert!(options.json);
         assert_eq!(options.env.as_deref(), Some("dev"));
         assert_eq!(
             action,
-            Action::Command(vec!["tasks.list".into(), "--json".into(), "--help".into()])
+            Action::Command(vec![
+                "tasks.list".into(),
+                "--q".into(),
+                "--json".into(),
+                "--help".into()
+            ])
         );
+    }
+
+    #[test]
+    fn line_and_view() {
+        let (options, action) = run(&["--view=v-1", "--line", "tasks.list --q a"]).unwrap();
+        assert_eq!(options.view.as_deref(), Some("v-1"));
+        assert_eq!(action, Action::Line("tasks.list --q a".into()));
+        assert_eq!(run(&["--line", "-"]).unwrap().1, Action::Line("-".into()));
+        assert_eq!(
+            run(&["--line", "x", "tasks.list"]).unwrap_err(),
+            ArgError::LineAndCommand
+        );
+        assert_eq!(
+            run(&["--", "--weird"]).unwrap().1,
+            Action::Command(vec!["--weird".into()])
+        );
+    }
+
+    #[test]
+    fn cli_option_right_after_the_name() {
+        assert_eq!(
+            run(&["tasks.list", "--json", "--limit", "5"]).unwrap_err(),
+            ArgError::Misplaced("gecko --json tasks.list --limit 5".into())
+        );
+        assert_eq!(
+            run(&["tasks.list", "--out", "a.json"]).unwrap_err(),
+            ArgError::Misplaced("gecko --out a.json tasks.list".into())
+        );
+        assert!(run(&["search", "--q", "--json"]).is_ok());
     }
 
     #[test]

@@ -30,13 +30,31 @@ $ gecko tasks.stop --id 8812
 Preview: 1 task stops. To run it: gecko tasks.stop --id 8812 --yes
 ```
 
-> **Status: work in progress, not released.** `gecko` is being rewritten in Rust; this
-> repository holds both the Rust crates and the earlier TypeScript build. It works with
-> the local **development hub** only; the hosted hub is not available yet.
+> **Status: early release.** The hosted Gecko hub is not available yet. Until it is,
+> `gecko` works only with the local [development hub](#development-hub) and a Gecko web
+> server built for development.
 
-## Build
+## Install
 
-The Rust build uses the toolchain pinned in `rust-toolchain.toml`:
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/dolusoft/gecko-cli/main/install.ps1 | iex
+```
+
+Linux and macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dolusoft/gecko-cli/main/install.sh | sh
+```
+
+The scripts download the binary for your machine from the
+[latest release](https://github.com/dolusoft/gecko-cli/releases/latest), check its
+SHA-256 against the release's `SHA256SUMS`, and put it in `%LOCALAPPDATA%\gecko\bin`
+(added to your PATH) or `~/.local/bin`. `GECKO_VERSION=v0.3.0` installs a given release.
+
+The Windows binary is not code-signed yet, so an antivirus may flag it as unknown. To
+build it yourself, use the toolchain pinned in `rust-toolchain.toml`:
 
 ```sh
 cargo build --release
@@ -152,7 +170,8 @@ cargo run -- dev-hub --port 4400 [--web http://localhost:5173] [--auto-approve]
 - `--web`: the origin of the sign-in and binding pages (a local Gecko web server).
 - `--auto-approve`: approves the device code for the first test user by itself.
 
-Release builds (`--no-default-features`) leave the development hub out.
+The released binaries (`--no-default-features`) leave the development hub out; run it
+from a source build as above.
 
 ## Development
 

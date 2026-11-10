@@ -1,0 +1,131 @@
+name: Release
+
+# A tag `v<version>` builds the release binaries, attaches them with SHA256SUMS to a
+# GitHub Release, and installs the published release with both install scripts. Run
+# by hand, it only builds the binaries (a dry run before tagging).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # `run`: the runner can start the binary, so its version is checked against the tag.
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, run: true }
+          - { target: aarch64-pc-windows-msvc, os: windows-latest, run: false }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, run: true }
+          - {
+              target: aarch64-unknown-linux-musl,
+              os: ubuntu-24.04-arm,
+              run: true
+            }
+          - { target: aarch64-apple-darwin, os: macos-latest, run: true }
+          - { target: x86_64-apple-darwin, os: macos-latest, run: false }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # The toolchain is pinned in rust-toolchain.toml; rustup installs it on first use.
+      - run: rustup show active-toolchain || rustup toolchain install
+      - run: rustup target add "$TARGET"
+      # ring compiles C: musl-gcc for the static Linux builds.
+      - if: ${{ contains(matrix.target, 'musl') }}
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      # The release build leaves the development hub out (K1).
+      - run: cargo build --release --locked --no-default-features -p gecko --target "$TARGET"
+      - name: Name the asset
+        run: |
+          ext=""
+          case "$TARGET" in *windows*) ext=".exe" ;; esac
+          mkdir -p release-assets
+          cp "target/$TARGET/release/gecko$ext" "release-assets/gecko-$TARGET$ext"
+          echo "ASSET=release-assets/gecko-$TARGET$ext" >> "$GITHUB_ENV"
+      # macOS refuses an unsigned binary on Apple silicon; ad-hoc signing is enough.
+      - if: ${{ runner.os == 'macOS' }}
+        run: codesign --force --sign - "$ASSET" && codesign --verify "$ASSET"
+      - if: ${{ matrix.run }}
+        name: The binary runs; on a tag, its version is the tag's
+        run: |
+          version="$("$ASSET" --version)"
+          echo "binary $version, ref $GITHUB_REF_NAME"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then test "v$version" = "$GITHUB_REF_NAME"; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asset-${{ matrix.target }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build
+    if: ${{ github.ref_type == 'tag' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: asset-*
+          merge-multiple: true
+          path: release-assets
+      - run: cd release-assets && sha256sum gecko-* > SHA256SUMS && cat SHA256SUMS
+      # The notes are the CHANGELOG section of this version.
+      - name: Release notes
+        run: |
+          awk -v head="## ${GITHUB_REF_NAME#v}" '
+            index($0, head) == 1 { on = 1; next }
+            on && /^## / { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          test -s notes.md
+          cat notes.md
+      - run: gh release create "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # The published release, installed the way a user installs it.
+  install:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - if: ${{ runner.os != 'Windows' }}
+        run: |
+          GECKO_VERSION="$GITHUB_REF_NAME" sh install.sh
+          test "v$("$HOME/.local/bin/gecko" --version)" = "$GITHUB_REF_NAME"
+      - if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          $env:GECKO_VERSION = $env:GITHUB_REF_NAME
+          ./install.ps1
+          $version = & "$env:LOCALAPPDATA\gecko\bin\gecko.exe" --version
+          if ("v$version" -ne $env:GITHUB_REF_NAME) { throw "installed $version" }

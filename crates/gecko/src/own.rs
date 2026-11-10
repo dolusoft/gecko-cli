@@ -122,17 +122,27 @@ pub async fn logout(
     config: &Config,
 ) -> Result<Outcome, Failure> {
     let env = env_of(args, options, config)?;
+    let mut revoked = true;
     if let Some(token) = config.read_token(&env) {
         // An unknown alias still lets the file go: revoking needs the address, deleting
         // does not.
-        if let Ok(auth) = Auth::new(&env, ProxyRule::from_env()) {
-            auth.revoke(&token).await;
-        }
+        revoked = match Auth::new(&env, ProxyRule::from_env()) {
+            Ok(auth) => auth.revoke(&token).await,
+            Err(_) => false,
+        };
     }
     config
         .delete_token(&env)
         .map_err(|error| Failure::new("failed", format!("cannot delete the token: {error}")))?;
-    Ok(Outcome::done(format!("Signed out ({env})")))
+    let summary = if revoked {
+        format!("Signed out ({env})")
+    } else {
+        // The token is gone here, but the hub still knows the grant until it expires.
+        format!(
+            "Signed out ({env}); the hub was not reached, so the sign-in stays valid there until it expires or is revoked in your Gecko profile"
+        )
+    };
+    Ok(Outcome::done(summary))
 }
 
 #[cfg(test)]

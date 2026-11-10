@@ -264,18 +264,18 @@ impl Auth {
         Ok(next)
     }
 
-    /// Revokes the grant on the server; a network error is ignored, as the token file
-    /// is deleted anyway and the grant can be revoked from the user's profile.
-    pub async fn revoke(&self, token: &StoredToken) {
-        let _ = self
-            .post(
-                "/oauth/revoke",
-                &[
-                    ("token", &token.refresh_token),
-                    ("token_type_hint", "refresh_token"),
-                ],
-            )
-            .await;
+    /// Revokes the grant on the server; false when the hub was not reached. The token
+    /// file is deleted anyway, and the grant can be revoked from the user's profile.
+    pub async fn revoke(&self, token: &StoredToken) -> bool {
+        self.post(
+            "/oauth/revoke",
+            &[
+                ("token", &token.refresh_token),
+                ("token_type_hint", "refresh_token"),
+            ],
+        )
+        .await
+        .is_ok()
     }
 }
 

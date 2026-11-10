@@ -1,52 +1,21 @@
-//! Device sign-in (RFC 8628), token refresh and revocation (RFC 7009) over HTTP.
-//! Requests follow the CLI's proxy rule; the token never goes into an address.
+//! The hub's HTTP side: an attach code's secret turned into tokens (`POST /cli/attach`,
+//! attach spec §10.2) and the token's refresh. Requests follow the CLI's proxy rule;
+//! the token never goes into an address.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use gecko_hub_client::net;
 use gecko_hub_client::proxy::ProxyRule;
-use gecko_hub_client::select::is_local_host;
 use serde_json::{Map, Value};
 use url::Url;
 
+use crate::code;
 use crate::config::{Config, StoredToken, User};
-use crate::interrupt::Interrupts;
 use crate::output::Failure;
 
 const CLIENT_ID: &str = "gecko-cli";
-const DEVICE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
 
-/// The host of an environment: an address as given (it has a `.` or `:`, or is
-/// `localhost`), or a name defined by `GECKO_ENV_<NAME>`.
-pub fn resolve_env(name: &str) -> Result<String, Failure> {
-    resolve_env_with(name, |key| std::env::var(key).ok())
-}
-
-pub fn resolve_env_with(
-    name: &str,
-    var: impl Fn(&str) -> Option<String>,
-) -> Result<String, Failure> {
-    if name.contains('.') || name.contains(':') || name == "localhost" {
-        return Ok(name.to_owned());
-    }
-    let key = format!("GECKO_ENV_{}", name.to_uppercase());
-    match var(&key).filter(|alias| !alias.is_empty()) {
-        Some(alias) => Ok(alias),
-        None => Err(Failure::new(
-            "usage",
-            format!(
-                "unknown environment: {name}. Give its address (--env develop.example.com) or define {key}"
-            ),
-        )),
-    }
-}
-
-/// `http://` for localhost, `https://` otherwise.
-pub fn base_url(host: &str) -> Result<Url, Failure> {
-    let scheme = if is_local_host(host) { "http" } else { "https" };
-    Url::parse(&format!("{scheme}://{host}"))
-        .map_err(|error| Failure::new("usage", format!("{host} is not a valid address: {error}")))
-}
+pub use crate::output::BIND_AGAIN;
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -55,20 +24,12 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// The HTTP side of sign-in: one environment, one proxy rule.
+/// One hub's HTTP routes.
 #[derive(Debug, Clone)]
 pub struct Auth {
-    env: String,
+    hub: String,
     base: Url,
     proxy: ProxyRule,
-}
-
-/// What the user is shown while the browser approves.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeviceStart {
-    pub user_code: String,
-    pub verification_uri: String,
-    pub verification_uri_complete: String,
 }
 
 struct Answer {
@@ -77,11 +38,13 @@ struct Answer {
 }
 
 impl Auth {
-    pub fn new(env: &str, proxy: ProxyRule) -> Result<Auth, Failure> {
-        let host = resolve_env(env)?;
+    /// `hub` is an origin that passed `code::hub_origin`.
+    pub fn new(hub: &str, proxy: ProxyRule) -> Result<Auth, Failure> {
+        let base = Url::parse(hub)
+            .map_err(|error| Failure::new("failed", format!("{hub} is not an address: {error}")))?;
         Ok(Auth {
-            env: env.to_owned(),
-            base: base_url(&host)?,
+            hub: hub.to_owned(),
+            base,
             proxy,
         })
     }
@@ -92,18 +55,15 @@ impl Auth {
         url
     }
 
-    /// POSTs a form and reads a JSON object back; a body that is not one reads as `{}`.
-    async fn post(&self, path: &str, form: &[(&str, &str)]) -> Result<Answer, Failure> {
+    /// POSTs a body and reads a JSON object back; a body that is not one reads as `{}`.
+    async fn post(&self, path: &str, content_type: &str, body: String) -> Result<Answer, Failure> {
         let url = self.endpoint(path);
         let unreachable =
             |detail: String| Failure::new("unreachable", format!("cannot reach {url}: {detail}"));
         let client = net::http_client(&url, &self.proxy).map_err(unreachable)?;
-        let body = url::form_urlencoded::Serializer::new(String::new())
-            .extend_pairs(form)
-            .finish();
         let response = client
             .post(url.clone())
-            .header("content-type", "application/x-www-form-urlencoded")
+            .header("content-type", content_type)
             .body(body)
             .send()
             .await
@@ -117,130 +77,79 @@ impl Auth {
         Ok(Answer { status, body })
     }
 
-    fn stored(&self, body: &Map<String, Value>) -> Result<StoredToken, Failure> {
-        let text = |key: &str| body.get(key).and_then(Value::as_str).map(str::to_owned);
-        let malformed = || Failure::new("failed", "the server's token answer is incomplete");
-        let user: User = body
-            .get("user")
-            .and_then(|user| serde_json::from_value(user.clone()).ok())
-            .ok_or_else(malformed)?;
-        let expires_in = body
-            .get("expires_in")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0);
-        Ok(StoredToken {
-            env: self.env.clone(),
-            access_token: text("access_token").ok_or_else(malformed)?,
-            access_expires_at: now_ms() + seconds(expires_in).as_millis() as u64,
-            refresh_token: text("refresh_token").ok_or_else(malformed)?,
-            grant_id: text("grant_id").ok_or_else(malformed)?,
-            user,
-        })
+    async fn post_form(&self, path: &str, form: &[(&str, &str)]) -> Result<Answer, Failure> {
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(form)
+            .finish();
+        self.post(path, "application/x-www-form-urlencoded", body)
+            .await
     }
 
-    /// The device flow: asks for codes, lets the caller show them, then polls at the
-    /// server's interval, slowing down when told (RFC 8628 §3.5). Ctrl+C ends it.
-    pub async fn device_login(
-        &self,
-        config: &Config,
-        show: impl FnOnce(&DeviceStart),
-        interrupts: &mut Interrupts,
-    ) -> Result<StoredToken, Failure> {
-        let start = self
-            .post("/oauth/device_authorization", &[("client_id", CLIENT_ID)])
-            .await?;
-        if start.status != 200 {
-            return Err(Failure::new(
-                "failed",
-                format!("could not start the sign-in (HTTP {})", start.status),
-            ));
+    /// Spends the code's secret: the hub binds the tab that made it and answers with
+    /// the binding's tokens.
+    pub async fn attach(&self, secret: &str) -> Result<StoredToken, Failure> {
+        let body = serde_json::json!({ "secret": secret }).to_string();
+        let answer = self.post("/cli/attach", "application/json", body).await?;
+        if answer.status != 200 {
+            let code = answer
+                .body
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            return Err(match code {
+                "invalid-code" => code::invalid(),
+                "no-terminal-access" => {
+                    Failure::new("no-terminal-access", "this account has no terminal access")
+                }
+                "too-many-attempts" => Failure::new(
+                    "too-many-attempts",
+                    "too many wrong codes from this address; wait a minute, then copy a new code from the tab",
+                ),
+                "" => Failure::new(
+                    "failed",
+                    format!("the hub refused the code (HTTP {})", answer.status),
+                ),
+                other => Failure::new("failed", format!("the hub refused the code: {other}")),
+            });
         }
         let text = |key: &str| {
-            start
+            answer
                 .body
                 .get(key)
                 .and_then(Value::as_str)
                 .map(str::to_owned)
         };
-        let device_code = text("device_code")
-            .ok_or_else(|| Failure::new("failed", "the server sent no device code"))?;
-        let mut interval = seconds(number(&start.body, "interval").unwrap_or(5.0));
-        let lifetime = seconds(number(&start.body, "expires_in").unwrap_or(600.0));
-        let verification_uri = text("verification_uri").unwrap_or_default();
-        show(&DeviceStart {
-            user_code: text("user_code").unwrap_or_default(),
-            verification_uri_complete: text("verification_uri_complete")
-                .unwrap_or_else(|| verification_uri.clone()),
-            verification_uri,
-        });
-
-        let deadline = tokio::time::Instant::now() + lifetime;
-        let cancelled = || Failure::new("cancelled", "interrupted");
-        let form = [
-            ("grant_type", DEVICE_GRANT),
-            ("device_code", device_code.as_str()),
-            ("client_id", CLIENT_ID),
-        ];
-        while tokio::time::Instant::now() < deadline {
-            tokio::select! {
-                _ = tokio::time::sleep(interval) => {}
-                _ = interrupts.next() => return Err(cancelled()),
-            }
-            let poll = tokio::select! {
-                poll = self.post("/oauth/token", &form) => poll?,
-                _ = interrupts.next() => return Err(cancelled()),
-            };
-            if poll.status == 200 {
-                let token = self.stored(&poll.body)?;
-                config.write_token(&token).map_err(write_failure)?;
-                return Ok(token);
-            }
-            match poll.body.get("error").and_then(Value::as_str).unwrap_or("") {
-                "authorization_pending" => {}
-                "slow_down" => {
-                    interval = match number(&poll.body, "interval") {
-                        Some(next) => seconds(next),
-                        None => interval + Duration::from_secs(5),
-                    };
-                }
-                "access_denied" => {
-                    return Err(Failure::new(
-                        "not-allowed",
-                        "the sign-in was refused in the browser",
-                    ));
-                }
-                "expired_token" => return Err(expired()),
-                other => {
-                    let detail = if other.is_empty() {
-                        format!("HTTP {}", poll.status)
-                    } else {
-                        other.to_owned()
-                    };
-                    return Err(Failure::new("failed", format!("sign-in failed: {detail}")));
-                }
-            }
-        }
-        Err(expired())
+        let malformed = || Failure::new("failed", "the hub's attach answer is incomplete");
+        let user: User = answer
+            .body
+            .get("user")
+            .and_then(|user| serde_json::from_value(user.clone()).ok())
+            .ok_or_else(malformed)?;
+        Ok(StoredToken {
+            hub: self.hub.clone(),
+            access_token: text("access_token").ok_or_else(malformed)?,
+            access_expires_at: expires_at(&answer.body),
+            refresh_token: text("refresh_token").ok_or_else(malformed)?,
+            grant_id: text("grantId").ok_or_else(malformed)?,
+            binding_id: text("bindingId").ok_or_else(malformed)?,
+            level: text("level").ok_or_else(malformed)?,
+            user,
+        })
     }
 
-    /// The stored token of the environment, refreshed when it expires within 30 s (or
-    /// always, with `force`).
+    /// The binding's token, refreshed when it expires within 30 s (or always, with
+    /// `force`). A refused refresh means the binding ended: the token is deleted.
     pub async fn current_token(
         &self,
         config: &Config,
+        token: StoredToken,
         force: bool,
     ) -> Result<StoredToken, Failure> {
-        let Some(token) = config.read_token(&self.env) else {
-            return Err(Failure::new(
-                "not-logged-in",
-                format!("not signed in: run gecko login --env {}", self.env),
-            ));
-        };
         if !force && token.access_expires_at.saturating_sub(now_ms()) > 30_000 {
             return Ok(token);
         }
         let answer = self
-            .post(
+            .post_form(
                 "/oauth/token",
                 &[
                     ("grant_type", "refresh_token"),
@@ -249,53 +158,56 @@ impl Auth {
                 ],
             )
             .await?;
-        if answer.status != 200 {
+        if (400..500).contains(&answer.status) {
+            // `invalid_grant`: the grant ended with its binding (attach spec §6).
+            let _ = config.delete_token();
             return Err(Failure::new(
-                "token-expired",
-                format!(
-                    "the sign-in expired or was revoked: run gecko login --env {}",
-                    self.env
-                ),
+                "gone",
+                format!("the binding ended; {BIND_AGAIN}"),
             ));
         }
-        let next = self.stored(&answer.body)?;
-        config.write_token(&next).map_err(write_failure)?;
+        if answer.status != 200 {
+            return Err(Failure::new(
+                "unreachable",
+                format!("the hub could not renew the token (HTTP {})", answer.status),
+            ));
+        }
+        let access_token = answer
+            .body
+            .get("access_token")
+            .and_then(Value::as_str)
+            .ok_or_else(|| Failure::new("failed", "the hub's token answer is incomplete"))?;
+        let next = StoredToken {
+            access_token: access_token.to_owned(),
+            access_expires_at: expires_at(&answer.body),
+            refresh_token: answer
+                .body
+                .get("refresh_token")
+                .and_then(Value::as_str)
+                .map_or(token.refresh_token.clone(), str::to_owned),
+            ..token
+        };
+        config
+            .write_token(&next)
+            .map_err(|error| Failure::new("failed", format!("cannot save the token: {error}")))?;
         Ok(next)
     }
-
-    /// Revokes the grant on the server; false when the hub was not reached. The token
-    /// file is deleted anyway, and the grant can be revoked from the user's profile.
-    pub async fn revoke(&self, token: &StoredToken) -> bool {
-        self.post(
-            "/oauth/revoke",
-            &[
-                ("token", &token.refresh_token),
-                ("token_type_hint", "refresh_token"),
-            ],
-        )
-        .await
-        .is_ok()
-    }
 }
 
-fn expired() -> Failure {
-    Failure::new("token-expired", "the sign-in code expired")
-}
-
-fn write_failure(error: std::io::Error) -> Failure {
-    Failure::new("failed", format!("cannot save the token: {error}"))
-}
-
-fn number(body: &Map<String, Value>, key: &str) -> Option<f64> {
-    body.get(key).and_then(Value::as_f64)
+fn expires_at(body: &Map<String, Value>) -> u64 {
+    let seconds = body
+        .get("expires_in")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    now_ms() + u64::try_from(bounded(seconds).as_millis()).unwrap_or(0)
 }
 
 /// Seconds from the server, bounded: negative or absurd values do not stall the CLI.
-fn seconds(value: f64) -> Duration {
+fn bounded(value: f64) -> Duration {
     if value.is_nan() {
         return Duration::ZERO;
     }
-    Duration::from_secs_f64(value.clamp(0.0, 3600.0))
+    Duration::from_secs_f64(value.clamp(0.0, 24.0 * 3600.0))
 }
 
 #[cfg(test)]
@@ -303,44 +215,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn environments() {
-        let var = |key: &str| (key == "GECKO_ENV_STAGE").then(|| "stage.example".to_owned());
-        assert_eq!(
-            resolve_env_with("develop.example", var).unwrap(),
-            "develop.example"
-        );
-        assert_eq!(
-            resolve_env_with("127.0.0.1:4400", var).unwrap(),
-            "127.0.0.1:4400"
-        );
-        assert_eq!(resolve_env_with("localhost", var).unwrap(), "localhost");
-        assert_eq!(resolve_env_with("stage", var).unwrap(), "stage.example");
-        let error = resolve_env_with("prod", var).unwrap_err();
-        assert_eq!(error.code, "usage");
-        assert!(
-            error.message.contains("GECKO_ENV_PROD"),
-            "{}",
-            error.message
-        );
-    }
-
-    #[test]
-    fn base_urls() {
-        assert_eq!(
-            base_url("127.0.0.1:4400").unwrap().as_str(),
-            "http://127.0.0.1:4400/"
-        );
-        assert_eq!(
-            base_url("develop.example").unwrap().as_str(),
-            "https://develop.example/"
-        );
-    }
-
-    #[test]
     fn server_seconds_are_bounded() {
-        assert_eq!(seconds(0.25), Duration::from_millis(250));
-        assert_eq!(seconds(-3.0), Duration::ZERO);
-        assert_eq!(seconds(1e12), Duration::from_secs(3600));
-        assert_eq!(seconds(f64::NAN), Duration::ZERO);
+        assert_eq!(bounded(0.25), Duration::from_millis(250));
+        assert_eq!(bounded(-3.0), Duration::ZERO);
+        assert_eq!(bounded(1e12), Duration::from_secs(24 * 3600));
+        assert_eq!(bounded(f64::NAN), Duration::ZERO);
+    }
+
+    #[test]
+    fn endpoints_keep_the_origin() {
+        let auth = Auth::new("https://hub.example:8443", ProxyRule::default()).unwrap();
+        assert_eq!(
+            auth.endpoint("/cli/attach").as_str(),
+            "https://hub.example:8443/cli/attach"
+        );
     }
 }

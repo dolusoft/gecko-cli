@@ -243,10 +243,6 @@ impl Transport for DevTransport {
         self.invoke("status", None).await
     }
 
-    async fn pair(&mut self) -> Result<Box<RawValue>, CallError> {
-        self.invoke("pair", None).await
-    }
-
     async fn send(&mut self, envelope: &RawValue) -> Result<Box<RawValue>, CallError> {
         let args = format!("{{\"envelope\":{}}}", envelope.get());
         let args = RawValue::from_string(args).map_err(|error| {

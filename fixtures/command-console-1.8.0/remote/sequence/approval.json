@@ -1,0 +1,429 @@
+[
+  {
+    "name": "change-screen-no-card",
+    "danger": "change",
+    "tab": {
+      "level": "ask-server",
+      "command": {
+        "name": "nav.go",
+        "danger": "change",
+        "effect": "screen",
+        "input": {
+          "type": "object",
+          "properties": { "to": { "type": "string" } },
+          "required": ["to"]
+        }
+      },
+      "summary": "Dashboard opened"
+    },
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["nav.go", "--to", "/dashboard"],
+      "origin": { "kind": "cli", "grantId": "g1", "bindingId": "b1" },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": true,
+        "viewRelevant": false
+      },
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": { "status": "ok", "summary": "Dashboard opened" },
+        "chunks": 0,
+        "bytes": 0,
+        "approval": "none"
+      }
+    ],
+    "expect": {
+      "exitCode": 0,
+      "json": {
+        "status": "ok",
+        "summary": "Dashboard opened",
+        "approval": "none",
+        "complete": true
+      }
+    }
+  },
+  {
+    "name": "change-server-card",
+    "danger": "change",
+    "tab": {
+      "level": "ask-server",
+      "command": {
+        "name": "tasks.stop",
+        "danger": "change",
+        "effect": "server",
+        "confirm": "yes",
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "yes": { "type": "boolean" }
+          },
+          "required": ["id"]
+        }
+      },
+      "summary": "Task 8812 stopped",
+      "approve": true
+    },
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.stop", "--id", "8812"],
+      "origin": { "kind": "cli", "grantId": "g1", "bindingId": "b1" },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": true,
+        "viewRelevant": false
+      },
+      {
+        "v": 1,
+        "kind": "awaiting-approval",
+        "id": "r1",
+        "expiresAt": 121000
+      },
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": { "status": "ok", "summary": "Task 8812 stopped" },
+        "chunks": 0,
+        "bytes": 0,
+        "approval": "card"
+      }
+    ],
+    "expect": {
+      "exitCode": 0,
+      "json": {
+        "status": "ok",
+        "summary": "Task 8812 stopped",
+        "approval": "card",
+        "complete": true
+      }
+    }
+  },
+  {
+    "name": "change-server-card-rejected",
+    "danger": "change",
+    "tab": {
+      "level": "ask-server",
+      "command": {
+        "name": "tasks.stop",
+        "danger": "change",
+        "effect": "server",
+        "confirm": "yes",
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "yes": { "type": "boolean" }
+          },
+          "required": ["id"]
+        }
+      },
+      "summary": "Task 8812 stopped",
+      "approve": false
+    },
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.stop", "--id", "8812"],
+      "origin": { "kind": "cli", "grantId": "g1", "bindingId": "b1" },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": true,
+        "viewRelevant": false
+      },
+      {
+        "v": 1,
+        "kind": "awaiting-approval",
+        "id": "r1",
+        "expiresAt": 121000
+      },
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": {
+          "status": "error",
+          "code": "not-allowed",
+          "class": "denied",
+          "message": "The user rejected the change in the browser; nothing changed."
+        },
+        "chunks": 0,
+        "bytes": 0
+      }
+    ],
+    "expect": {
+      "exitCode": 3,
+      "json": {
+        "status": "error",
+        "code": "not-allowed",
+        "complete": true
+      },
+      "absent": ["approval", "suggest"]
+    }
+  },
+  {
+    "name": "change-server-never-ask",
+    "danger": "change",
+    "tab": {
+      "level": "never-ask",
+      "command": {
+        "name": "tasks.stop",
+        "danger": "change",
+        "effect": "server",
+        "confirm": "yes",
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "yes": { "type": "boolean" }
+          },
+          "required": ["id"]
+        }
+      },
+      "summary": "Task 8812 stopped"
+    },
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.stop", "--id", "8812"],
+      "origin": { "kind": "cli", "grantId": "g1", "bindingId": "b1" },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": true,
+        "viewRelevant": false
+      },
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": { "status": "ok", "summary": "Task 8812 stopped" },
+        "chunks": 0,
+        "bytes": 0,
+        "approval": "none"
+      }
+    ],
+    "expect": {
+      "exitCode": 0,
+      "json": {
+        "status": "ok",
+        "summary": "Task 8812 stopped",
+        "approval": "none",
+        "complete": true
+      }
+    }
+  },
+  {
+    "name": "change-dry-run-preview",
+    "danger": "change",
+    "tab": {
+      "level": "ask-server",
+      "command": {
+        "name": "tasks.stop",
+        "danger": "change",
+        "effect": "server",
+        "confirm": "yes",
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "yes": { "type": "boolean" }
+          },
+          "required": ["id"]
+        }
+      },
+      "summary": "Task 8812 would stop"
+    },
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.stop", "--id", "8812", "--dry-run"],
+      "origin": { "kind": "cli", "grantId": "g1", "bindingId": "b1" },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": false,
+        "viewRelevant": false
+      },
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": { "status": "ok", "summary": "Task 8812 would stop" },
+        "chunks": 0,
+        "bytes": 0,
+        "preview": true
+      }
+    ],
+    "expect": {
+      "exitCode": 0,
+      "json": {
+        "status": "ok",
+        "summary": "Task 8812 would stop",
+        "preview": true,
+        "complete": true
+      },
+      "absent": ["approval", "suggest"]
+    }
+  },
+  {
+    "name": "change-dry-run-no-confirm-invalid",
+    "danger": "change",
+    "tab": {
+      "level": "ask-server",
+      "command": {
+        "name": "nav.go",
+        "danger": "change",
+        "effect": "screen",
+        "input": {
+          "type": "object",
+          "properties": { "to": { "type": "string" } },
+          "required": ["to"]
+        }
+      },
+      "summary": "Dashboard opened"
+    },
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["nav.go", "--to", "/dashboard", "--dry-run"],
+      "origin": { "kind": "cli", "grantId": "g1", "bindingId": "b1" },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": {
+          "status": "error",
+          "code": "invalid-args",
+          "class": "usage",
+          "message": "nav.go has no preview, so --dry-run cannot be used with it."
+        },
+        "chunks": 0,
+        "bytes": 0,
+        "help": "nav.go"
+      }
+    ],
+    "expect": {
+      "exitCode": 2,
+      "json": {
+        "status": "error",
+        "code": "invalid-args",
+        "complete": true
+      },
+      "absent": ["approval"]
+    }
+  },
+  {
+    "name": "change-yes-ignored",
+    "danger": "change",
+    "tab": {
+      "level": "never-ask",
+      "command": {
+        "name": "tasks.stop",
+        "danger": "change",
+        "effect": "server",
+        "confirm": "yes",
+        "input": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "integer" },
+            "yes": { "type": "boolean" }
+          },
+          "required": ["id"]
+        }
+      },
+      "summary": "Task 8812 stopped"
+    },
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.stop", "--id", "8812", "--yes"],
+      "origin": { "kind": "cli", "grantId": "g1", "bindingId": "b1" },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": true,
+        "viewRelevant": false
+      },
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": { "status": "ok", "summary": "Task 8812 stopped" },
+        "chunks": 0,
+        "bytes": 0,
+        "approval": "none"
+      }
+    ],
+    "expect": {
+      "exitCode": 0,
+      "json": {
+        "status": "ok",
+        "summary": "Task 8812 stopped",
+        "approval": "none",
+        "complete": true
+      }
+    }
+  }
+]

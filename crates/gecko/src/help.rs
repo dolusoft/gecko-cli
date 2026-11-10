@@ -9,12 +9,11 @@ use gecko_wire::request;
 use serde_json::Value;
 use tokio::time::sleep_until;
 
-use crate::args::Options;
+use crate::auth::BIND_AGAIN;
 use crate::config::Config;
 use crate::interrupt::Interrupts;
 use crate::line::{Sent, capabilities_of, live_binding, new_id, send};
 use crate::output::{Failure, Io, Outcome};
-use crate::own::env_of;
 use crate::session::{self, Session, lost_failure};
 
 /// The last line under a list of commands.
@@ -89,7 +88,7 @@ pub fn ended(answer: &Answer) -> Option<Outcome> {
         )),
         Answer::Revoked => Some(Outcome::error(
             "revoked",
-            "the CLI grant was revoked. Sign in again: gecko login",
+            format!("the binding ended; {BIND_AGAIN}"),
             6,
         )),
         Answer::Interrupted => Some(Outcome::error("cancelled", "cancelled", 130)),
@@ -150,13 +149,11 @@ pub fn outcome_of(help: &HelpResult, json: bool) -> Outcome {
 
 pub async fn run(
     args: &[String],
-    options: &Options,
     config: &Config,
     io: &mut Io<'_>,
     interrupts: &mut Interrupts,
 ) -> Result<Outcome, Failure> {
-    let env = env_of(&[], options, config)?;
-    let mut session = session::open(&env, config).await?;
+    let mut session = session::open(config).await?;
     let result = run_in(&mut session, args, io, interrupts).await;
     session.hub.close().await;
     result

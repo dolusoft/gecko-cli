@@ -23,11 +23,30 @@ pub const REQUIRED_FEATURES: [&str; 6] = [
 /// The envelope versions this CLI speaks.
 pub const ENVELOPES: [u64; 1] = [1];
 
+/// What a `change` command changes (attach spec §5.1): the user's own tab, or
+/// something on the server. Not declared, or a value this CLI does not know: `Server`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Effect {
+    Screen,
+    Server,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Command {
     pub name: String,
     pub aliases: Vec<String>,
     pub danger: Danger,
+    /// As declared (command-console 1.8.0); an unknown value reads as `Server`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effect: Option<Effect>,
+}
+
+impl Command {
+    /// What the command changes; not declared: `Server`.
+    pub fn effect(&self) -> Effect {
+        self.effect.unwrap_or(Effect::Server)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -144,6 +163,10 @@ pub fn read_parts(parts: &[String]) -> Result<Capabilities, String> {
                 } else {
                     Danger::Change
                 },
+                effect: command.get("effect").map(|effect| match effect.as_str() {
+                    Some("screen") => Effect::Screen,
+                    _ => Effect::Server,
+                }),
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -187,6 +210,26 @@ mod tests {
         assert_eq!(version_below("0.3", "0.3.1"), Some(true));
         assert_eq!(version_below("0.3.0-rc.1", "0.3.0"), Some(false));
         assert_eq!(version_below("x", "0.3.0"), None);
+    }
+
+    #[test]
+    fn effects_default_to_server() {
+        let list = r#"{"envelopes":[1],"features":[],"revision":"r","sensitive":[],"commands":[
+            {"name":"nav.go","aliases":[],"danger":"change","effect":"screen"},
+            {"name":"tasks.stop","aliases":[],"danger":"change","effect":"server"},
+            {"name":"x.export","aliases":[],"danger":"change"},
+            {"name":"y.later","aliases":[],"danger":"change","effect":"cosmic"}]}"#;
+        let caps = read_parts(&[list.to_owned()]).unwrap();
+        let effect = |name: &str| caps.command(name).unwrap().effect();
+        assert_eq!(effect("nav.go"), Effect::Screen);
+        assert_eq!(effect("tasks.stop"), Effect::Server);
+        assert_eq!(effect("x.export"), Effect::Server);
+        assert_eq!(effect("y.later"), Effect::Server);
+        // The read form keeps what was declared, an unknown value as `server`.
+        let read = serde_json::to_value(&caps).unwrap();
+        assert_eq!(read["commands"][0]["effect"], "screen");
+        assert!(read["commands"][2].get("effect").is_none());
+        assert_eq!(read["commands"][3]["effect"], "server");
     }
 
     #[test]

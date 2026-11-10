@@ -6,6 +6,10 @@ use std::io::{IsTerminal, Write};
 
 use serde::Serialize;
 
+/// What a bound command says when its binding has ended.
+pub const BIND_AGAIN: &str =
+    "to bind again: gecko attach <code> (copy the line from the Gecko tab)";
+
 /// A failure the CLI itself reports, with a machine code (`not-logged-in`, `usage`, ...).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Failure {
@@ -27,11 +31,12 @@ impl Failure {
 pub fn exit_code_of(code: &str) -> u8 {
     match code {
         "usage" | "unsupported-version" => 2,
-        "not-allowed" | "pair-timeout" | "no-terminal-access" => 3,
+        "not-allowed" | "no-terminal-access" | "untrusted-hub" | "insecure-hub"
+        | "approval-dropped" => 3,
         "unreachable" | "connection-lost" | "busy" | "no-binding" | "gone" | "tab-unreachable"
-        | "not-delivered" | "rate-limited" | "invalid-code" | "expired" | "other-account" => 4,
+        | "not-delivered" | "rate-limited" | "too-many-attempts" => 4,
         "unknown-outcome" => 5,
-        "not-logged-in" | "unauthorized" | "token-expired" | "revoked" => 6,
+        "invalid-code" | "unauthorized" | "revoked" => 6,
         "cancelled" | "cancel-requested" | "cancelled-before-start" => 130,
         _ => 1,
     }
@@ -60,6 +65,9 @@ pub struct Outcome {
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// How a change ran, from the tab's `finished` (attach spec §5.4): `card` or `none`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,6 +107,7 @@ impl Outcome {
             message: None,
             reason: None,
             summary: None,
+            approval: None,
             data: None,
             view: None,
             hidden: None,
@@ -224,14 +233,9 @@ fn plain_text(outcome: &Outcome, columns: Option<usize>) -> String {
         .collect();
     let summary = outcome.summary.as_deref().map(escape_controls);
     if outcome.preview {
-        let head = format!("Preview: {}", summary.unwrap_or_default());
-        lines.push(match &outcome.suggest {
-            Some(argv) => format!(
-                "{head}. To run it: gecko {}",
-                escape_controls(&quote_argv(argv))
-            ),
-            None => head,
-        });
+        // A preview is what `--dry-run` asked for; the change runs without it (attach
+        // spec §5.3), so no line to confirm with is printed.
+        lines.push(format!("Preview: {}", summary.unwrap_or_default()));
     } else if let Some(summary) = summary {
         lines.push(summary);
     }
@@ -400,8 +404,14 @@ mod tests {
         assert_eq!(exit_code_of("not-allowed"), 3);
         assert_eq!(exit_code_of("unreachable"), 4);
         assert_eq!(exit_code_of("unknown-outcome"), 5);
-        assert_eq!(exit_code_of("not-logged-in"), 6);
-        assert_eq!(exit_code_of("token-expired"), 6);
+        assert_eq!(exit_code_of("invalid-code"), 6);
+        assert_eq!(exit_code_of("revoked"), 6);
+        assert_eq!(exit_code_of("untrusted-hub"), 3);
+        assert_eq!(exit_code_of("insecure-hub"), 3);
+        assert_eq!(exit_code_of("no-terminal-access"), 3);
+        assert_eq!(exit_code_of("approval-dropped"), 3);
+        assert_eq!(exit_code_of("too-many-attempts"), 4);
+        assert_eq!(exit_code_of("no-binding"), 4);
         assert_eq!(exit_code_of("cancelled"), 130);
         assert_eq!(exit_code_of("something-new"), 1);
     }
@@ -436,30 +446,29 @@ mod tests {
 
     #[test]
     fn text_and_json() {
-        let (code, out, err) = render(&Outcome::done("Signed in: Zahit (dev)"), false);
-        assert_eq!(
-            (code, out.as_str(), err.as_str()),
-            (0, "Signed in: Zahit (dev)\n", "")
-        );
+        let (code, out, err) = render(&Outcome::done("Detached"), false);
+        assert_eq!((code, out.as_str(), err.as_str()), (0, "Detached\n", ""));
 
-        let (code, out, _) = render(&Outcome::done("Signed in: Çağrı"), true);
+        let mut changed = Outcome::done("Görev durdu");
+        changed.approval = Some("none".into());
+        let (code, out, _) = render(&changed, true);
         assert_eq!(code, 0);
         assert_eq!(
             out,
-            "{\"v\":1,\"status\":\"ok\",\"summary\":\"Signed in: \\u00c7a\\u011fr\\u0131\",\"preview\":false,\"complete\":true,\"untrusted\":[]}\n"
+            "{\"v\":1,\"status\":\"ok\",\"summary\":\"G\\u00f6rev durdu\",\"approval\":\"none\",\"preview\":false,\"complete\":true,\"untrusted\":[]}\n"
         );
 
-        let failure = Failure::new("not-logged-in", "not signed in");
+        let failure = Failure::new("invalid-code", "the code is invalid");
         let (code, out, err) = render(&Outcome::failed(&failure), false);
         assert_eq!((code, out.as_str()), (6, ""));
-        assert_eq!(err, "error (not-logged-in): not signed in\n");
+        assert_eq!(err, "error (invalid-code): the code is invalid\n");
 
         let (code, out, err) = render(&Outcome::failed(&failure), true);
         assert_eq!(code, 6);
         assert!(err.is_empty());
         assert_eq!(
             out,
-            "{\"v\":1,\"status\":\"error\",\"code\":\"not-logged-in\",\"message\":\"not signed in\",\"exitCode\":6,\"preview\":false,\"complete\":true,\"untrusted\":[]}\n"
+            "{\"v\":1,\"status\":\"error\",\"code\":\"invalid-code\",\"message\":\"the code is invalid\",\"exitCode\":6,\"preview\":false,\"complete\":true,\"untrusted\":[]}\n"
         );
     }
 
@@ -482,10 +491,7 @@ mod tests {
         preview.summary = Some("3 tasks would close".into());
         preview.suggest = Some(vec!["tasks.close".into(), "--confirm".into()]);
         let (_, out, _) = render(&preview, false);
-        assert_eq!(
-            out,
-            "Preview: 3 tasks would close. To run it: gecko tasks.close --confirm\n"
-        );
+        assert_eq!(out, "Preview: 3 tasks would close\n");
 
         let mut page = Outcome::ok();
         page.data = Some(serde_json::json!({ "n": 1 }));

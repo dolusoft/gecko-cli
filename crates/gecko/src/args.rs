@@ -10,7 +10,6 @@ use std::ffi::OsString;
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Options {
     pub json: bool,
-    pub env: Option<String>,
     /// `--view <id>`: the view the command runs in.
     pub view: Option<String>,
     /// `--out <file>`: the result goes to this file as UTF-8 instead of stdout.
@@ -122,7 +121,6 @@ where
             "--help" | "-h" if inline.is_none() => return Ok((options, Action::Help)),
             "--version" | "-v" if inline.is_none() => return Ok((options, Action::Version)),
             "--json" if inline.is_none() => options.json = true,
-            "--env" => options.env = Some(value("--env")?),
             "--view" => options.view = Some(value("--view")?),
             "--out" => options.out = Some(value("--out")?),
             "--line" => line = Some(value("--line")?),
@@ -186,18 +184,8 @@ mod tests {
 
     #[test]
     fn options_stop_at_the_command_name() {
-        let (options, action) = run(&[
-            "--json",
-            "--env",
-            "dev",
-            "tasks.list",
-            "--q",
-            "--json",
-            "--help",
-        ])
-        .unwrap();
+        let (options, action) = run(&["--json", "tasks.list", "--q", "--json", "--help"]).unwrap();
         assert!(options.json);
-        assert_eq!(options.env.as_deref(), Some("dev"));
         assert_eq!(
             action,
             Action::Command(vec![
@@ -241,9 +229,27 @@ mod tests {
     }
 
     #[test]
-    fn env_with_equals() {
-        let (options, _) = run(&["--env=prod", "status"]).unwrap();
-        assert_eq!(options.env.as_deref(), Some("prod"));
+    fn env_is_gone() {
+        // The hub comes from the attach code (attach spec §3.2).
+        assert_eq!(
+            run(&["--env", "dev", "status"]).unwrap_err(),
+            ArgError::UnknownOption("--env".into())
+        );
+    }
+
+    #[test]
+    fn dry_run_and_yes_belong_to_the_command() {
+        let (_, action) = run(&["tasks.stop", "--id", "8812", "--dry-run", "--yes"]).unwrap();
+        assert_eq!(
+            action,
+            Action::Command(vec![
+                "tasks.stop".into(),
+                "--id".into(),
+                "8812".into(),
+                "--dry-run".into(),
+                "--yes".into()
+            ])
+        );
     }
 
     #[test]
@@ -257,8 +263,8 @@ mod tests {
     #[test]
     fn errors() {
         assert_eq!(
-            run(&["--env"]).unwrap_err(),
-            ArgError::MissingValue("--env")
+            run(&["--view"]).unwrap_err(),
+            ArgError::MissingValue("--view")
         );
         assert_eq!(
             run(&["--nope", "x"]).unwrap_err(),

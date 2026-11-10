@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [features]
 # Developer and CI builds carry the development hub; the release workflow builds with
-# --no-default-features, so customers get no HTTP server and no --auto-approve (K1).
+# --no-default-features, so customers get no HTTP server (K1).
 default = ["dev-hub"]
 dev-hub = ["dep:gecko-dev-hub"]
 

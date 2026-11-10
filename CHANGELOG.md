@@ -3,6 +3,23 @@
 ## Unreleased
 
 - The TypeScript build and its tests are removed; the repository is Rust only.
+- Binding with one line: **Attach CLI** in a Gecko tab gives `gecko attach <code>`,
+  which binds the CLI to that tab. `gecko attach -` reads the code from stdin. The code
+  works once, for 2 minutes, and carries the hub address.
+- A hub address is trusted once: the CLI asks on a terminal, and `--trust-hub` trusts it
+  without asking. Only `https://` hubs and `http://` on this computer are accepted.
+- The approval level (`ask-server` or `never-ask`) is chosen in the tab; `gecko status`
+  shows it. A change that ran without approval says so, and `--json` carries
+  `approval` (`card` or `none`).
+- One binding at a time; its token ends with it. Reloading the tab keeps the binding,
+  and a line sent meanwhile waits for the tab up to 5 seconds.
+- Removed: `gecko login`, `gecko logout`, `--env`, `GECKO_ENV_<NAME>`, `GECKO_BROWSER`,
+  and the device sign-in and binding pages of the development hub (`--auto-approve`,
+  `--interval`). The development hub gains `--public-url`.
+- `--dry-run` and `--yes` go to the tab as typed; a preview no longer prints a line to
+  confirm with. The CLI reads command-console 1.8.0 (`effect`, `approval`).
+- Exit code 6 now means an invalid or expired attach code or a refused token; an ended
+  binding is 4.
 
 ## 0.3.0
 

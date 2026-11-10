@@ -17,6 +17,10 @@ pub enum Event {
     Reply(Reply),
     /// The hub connection or the binding ended; carries the reader's text.
     Lost(String),
+    /// The bound page left (reload, close, a dropped connection): the binding is
+    /// suspended and the request's page is gone. An open approval card goes with it
+    /// (attach spec §4: exit 3).
+    TabLeft,
     /// The grant was revoked: an identity error, whatever ran.
     Revoked,
     /// The hub's window (`expiresAt - stampedAt`) and the margin passed with no
@@ -161,9 +165,18 @@ impl Run {
         match event {
             Event::Reply(reply) => self.on_reply(reply),
             Event::Lost(why) => self.lost(&why),
+            Event::TabLeft if self.approving && !self.interrupted => self.end(Outcome::error(
+                "approval-dropped",
+                "the Gecko tab reloaded or closed while the approval card was open; the command did not run",
+                3,
+            )),
+            Event::TabLeft => self.lost("the bound tab reloaded, closed or lost its connection"),
             Event::Revoked => self.end(Outcome::error(
                 "revoked",
-                "the CLI grant was revoked; work that started may go on. Sign in again: gecko login",
+                format!(
+                    "the binding ended; work that started may go on. {}",
+                    crate::output::BIND_AGAIN
+                ),
                 6,
             )),
             Event::DeliveryTimeout => {
@@ -264,6 +277,8 @@ impl Run {
                 outcome
             }
         };
+        // How the change ran, as the tab wrote it (attach spec §5.4).
+        outcome.approval = finished.approval.clone();
         outcome.suggest = finished.suggest.clone();
         outcome.help = finished.help.clone();
         outcome.view = finished.view.as_ref().map(|view| ViewInfo {
@@ -380,5 +395,54 @@ mod tests {
             panic!()
         };
         assert_eq!((outcome.status, outcome.exit()), ("cancelled", 130));
+    }
+
+    #[test]
+    fn a_reload_drops_an_open_approval_card() {
+        let mut run = Run::new(true);
+        run.on(Event::Reply(Reply::AwaitingApproval {
+            id: "r".into(),
+            expires_at: 1.0,
+        }));
+        let Step::End(outcome) = run.on(Event::TabLeft) else {
+            panic!()
+        };
+        assert_eq!(
+            (outcome.code.as_deref(), outcome.exit()),
+            (Some("approval-dropped"), 3)
+        );
+        // Without a card it is a lost connection: a read is safe to run again.
+        let mut read = Run::new(false);
+        let Step::End(outcome) = read.on(Event::TabLeft) else {
+            panic!()
+        };
+        assert_eq!(outcome.exit(), 4);
+    }
+
+    #[test]
+    fn approval_passes_through() {
+        let mut run = Run::new(true);
+        let finished = Finished {
+            id: "r".into(),
+            status: Status::Ok,
+            summary: Some("Task 8812 stopped".into()),
+            failure: gecko_wire::reply::Failure {
+                code: None,
+                class: None,
+                message: None,
+            },
+            chunks: 0,
+            bytes: 0,
+            view: None,
+            preview: false,
+            suggest: None,
+            next: None,
+            help: None,
+            approval: Some("card".into()),
+        };
+        let Step::End(outcome) = run.on(Event::Reply(Reply::Finished(Box::new(finished)))) else {
+            panic!()
+        };
+        assert_eq!(outcome.approval.as_deref(), Some("card"));
     }
 }

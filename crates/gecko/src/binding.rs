@@ -1,32 +1,48 @@
-//! The binding commands: `attach`, `detach` and `status`. Where the bound tab is comes
-//! from the hub (`binding.where`, published by the tab, §5.9); the CLI does not ask the
-//! tab for it.
+//! The binding commands: `attach <code>`, `detach` and `status` (attach spec §3, §6).
+//! A binding starts only from a code the user copied out of a Gecko tab; its token
+//! lives and ends with it. Where the bound tab is comes from the hub (`binding.where`,
+//! published by the tab, §5.9); the CLI does not ask the tab for it.
 
-use std::time::Instant;
+use std::io::IsTerminal;
+use std::time::{Duration, Instant};
 
 use gecko_hub_client::Transport;
 use gecko_hub_client::hub::{Binding, BindingState, User, Where};
+use gecko_hub_client::proxy::ProxyRule;
 use serde::Serialize;
 
 use crate::args::Options;
+use crate::auth::{Auth, BIND_AGAIN};
+use crate::code;
 use crate::config::Config;
 use crate::interrupt::Interrupts;
-use crate::output::{Failure, Io, Outcome};
-use crate::own::{Flag, env_of, own_option};
-use crate::session::{self, Session, call_failure, now_ms};
+use crate::output::{Failure, Io, Outcome, interactive};
+use crate::session::{self, now_ms};
+
+/// How long ending the previous binding may take before `attach` goes on without it.
+const OLD_BINDING_WAIT: Duration = Duration::from_secs(5);
 
 /// Why a binding ended, for the reader; the hub's `reason` stays the machine value.
 pub fn gone_message(reason: Option<&str>) -> String {
     let why = match reason.unwrap_or("") {
-        "replaced" => "the binding moved to another tab or CLI install",
-        "closed" => "the bound tab was closed or reloaded",
+        "replaced" => "the tab was bound again with a new code",
+        "closed" => "the bound tab was closed",
         "detached" => "the binding was removed",
         "logged-out" => "the browser session was signed out",
-        "revoked" => "the CLI grant was revoked in the profile",
+        "revoked" => "the CLI access was revoked in the profile",
         "suspended-timeout" => "the bound tab did not come back within 60 s",
         _ => "the binding ended",
     };
-    format!("{why}; to bind again: gecko attach")
+    format!("{why}; {BIND_AGAIN}")
+}
+
+/// What a level means, in a few words (attach spec §5.2).
+pub fn level_text(level: &str) -> String {
+    match level {
+        "ask-server" => "ask-server (changes on the server ask for approval in the tab)".to_owned(),
+        "never-ask" => "never-ask (nothing asks for approval)".to_owned(),
+        other => other.to_owned(),
+    }
 }
 
 /// "Tasks · /tasks": the tab's title and path, whichever it published.
@@ -40,8 +56,93 @@ fn place(location: Option<&Where>) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
-async fn close(session: Session) {
-    session.hub.close().await;
+/// `gecko attach <code>`, `gecko attach -`, either with `--trust-hub`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct AttachArgs {
+    /// The code, or `-` for stdin.
+    pub code: String,
+    pub trust_hub: bool,
+}
+
+pub fn attach_args(args: &[String]) -> Result<AttachArgs, Failure> {
+    let usage = |why: &str| Failure::new("usage", format!("{why}; usage: gecko attach <code>"));
+    let mut code = None;
+    let mut trust_hub = false;
+    for word in args {
+        if word == "--trust-hub" {
+            trust_hub = true;
+            continue;
+        }
+        if word.starts_with('-') && word != "-" {
+            return Err(usage(&format!("unknown option {word}")));
+        }
+        if code.is_some() {
+            return Err(usage("one code at a time"));
+        }
+        code = Some(word.clone());
+    }
+    let code = code.ok_or_else(|| usage("no code: copy the line from the Gecko tab"))?;
+    Ok(AttachArgs { code, trust_hub })
+}
+
+fn read_stdin() -> Result<String, Failure> {
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut text).map_err(|error| {
+        Failure::new("usage", format!("cannot read the code from stdin: {error}"))
+    })?;
+    Ok(text.trim().to_owned())
+}
+
+fn untrusted(hub: &str) -> Failure {
+    Failure::new(
+        "untrusted-hub",
+        format!(
+            "{hub} has not been used from this computer; to trust it without a prompt: gecko attach --trust-hub <code>"
+        ),
+    )
+}
+
+/// Asks once on the terminal whether to trust a new hub address.
+async fn ask_trust(
+    hub: &str,
+    io: &mut Io<'_>,
+    interrupts: &mut Interrupts,
+) -> Result<bool, Failure> {
+    io.clear_progress();
+    let _ = write!(
+        io.err,
+        "{hub} has not been used from this computer. Connect to it? [y/N] "
+    );
+    let _ = io.err.flush();
+    let answer = tokio::task::spawn_blocking(|| {
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line).map(|_| line)
+    });
+    tokio::select! {
+        answer = answer => {
+            let line = answer.ok().and_then(Result::ok).unwrap_or_default();
+            let _ = writeln!(io.err);
+            Ok(matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
+        }
+        () = interrupts.next() => Err(Failure::new("cancelled", "cancelled")),
+    }
+}
+
+/// Ends the binding of `config`, if any: the hub's `detach` when it answers in time,
+/// then the token file goes either way.
+async fn end_old_binding(config: &Config) -> bool {
+    let Some(old) = config.read_token() else {
+        return false;
+    };
+    let _ = tokio::time::timeout(OLD_BINDING_WAIT, async {
+        if let Ok(mut session) = session::open_with(config, old).await {
+            let _ = session.hub.detach().await;
+            session.hub.close().await;
+        }
+    })
+    .await;
+    let _ = config.delete_token();
+    true
 }
 
 pub async fn attach(
@@ -51,50 +152,85 @@ pub async fn attach(
     io: &mut Io<'_>,
     interrupts: &mut Interrupts,
 ) -> Result<Outcome, Failure> {
-    let env = env_of(args, options, config)?;
-    let mut session = session::open(&env, config).await?;
-    let fresh = own_option(args, "new") != Flag::Absent;
-    if let Some(current) = session.status.binding.as_ref()
-        && current.state == BindingState::Active
-        && !fresh
-    {
-        let name =
-            place(current.location.as_ref()).unwrap_or_else(|| format!("page {}", current.page_id));
-        close(session).await;
-        return Ok(Outcome::done(format!(
-            "Already bound: {name}. For a new tab: gecko attach --new"
-        )));
+    let args = attach_args(args)?;
+    let from_stdin = args.code == "-";
+    let text = if from_stdin {
+        read_stdin()?
+    } else {
+        args.code.clone()
+    };
+    let code = code::open(&text)?;
+    io.info(&format!("Connecting to {}", code.hub));
+    if !config.trusts(&code.hub) {
+        let prompt = !options.json
+            && !from_stdin
+            && interactive(std::io::stdin().is_terminal())
+            && interactive(std::io::stderr().is_terminal());
+        let trusted = if args.trust_hub {
+            true
+        } else if prompt {
+            ask_trust(&code.hub, io, interrupts).await?
+        } else {
+            return Err(untrusted(&code.hub));
+        };
+        if !trusted {
+            return Err(Failure::new(
+                "untrusted-hub",
+                format!("not connected to {}", code.hub),
+            ));
+        }
+        config.trust(&code.hub).map_err(|error| {
+            Failure::new("failed", format!("cannot save the trusted hub: {error}"))
+        })?;
     }
-    let paired = session::pair(&mut session, io, interrupts).await;
-    close(session).await;
-    let binding = paired?;
-    Ok(Outcome::done(match place(binding.location.as_ref()) {
-        Some(name) => format!("Attached: {name}"),
-        None => "Attached".to_owned(),
-    }))
+    let auth = Auth::new(&code.hub, ProxyRule::from_env())?;
+    let token = auth.attach(&code.secret).await?;
+    // One binding at a time: once the new one stands, the old one and its token end
+    // (attach spec §3.4). A refused code leaves the old binding as it was.
+    if end_old_binding(config).await {
+        io.info("The previous binding ended");
+    }
+    config
+        .write_token(&token)
+        .map_err(|error| Failure::new("failed", format!("cannot save the token: {error}")))?;
+    let mut outcome = Outcome::done(format!(
+        "Attached: {} · level {}",
+        token.user.name,
+        level_text(&token.level)
+    ));
+    // The fields are for `--json`; in text the line says it all.
+    outcome.data = options.json.then(|| {
+        serde_json::json!({
+            "hub": token.hub,
+            "user": { "id": token.user.id, "name": token.user.name },
+            "bindingId": token.binding_id,
+            "level": token.level,
+        })
+    });
+    Ok(outcome)
 }
 
-pub async fn detach(
-    args: &[String],
-    options: &Options,
-    config: &Config,
-) -> Result<Outcome, Failure> {
-    let env = env_of(args, options, config)?;
-    let mut session = session::open(&env, config).await?;
-    let bound = session
-        .status
-        .binding
-        .as_ref()
-        .is_some_and(|binding| binding.state != BindingState::Gone);
-    if !bound {
-        // The hub says ok either way; the CLI says what was there.
-        close(session).await;
+pub async fn detach(config: &Config) -> Result<Outcome, Failure> {
+    let Some(token) = config.read_token() else {
         return Ok(Outcome::done("There was no binding"));
-    }
-    let detached = session.hub.detach().await;
-    close(session).await;
-    detached.map_err(|error| call_failure(error, true))?;
-    Ok(Outcome::done("Detached"))
+    };
+    let ended = match session::open_with(config, token).await {
+        Ok(mut session) => {
+            let detached = session.hub.detach().await.is_ok();
+            session.hub.close().await;
+            detached
+        }
+        // The hub had ended it already.
+        Err(failure) => failure.code == "gone",
+    };
+    config
+        .delete_token()
+        .map_err(|error| Failure::new("failed", format!("cannot delete the token: {error}")))?;
+    Ok(Outcome::done(if ended {
+        "Detached"
+    } else {
+        "Detached here; the hub was not reached, so the tab keeps the binding until it ends it (CLI bindings in the Gecko profile)"
+    }))
 }
 
 /// What `gecko status --json` carries in `data`.
@@ -102,14 +238,14 @@ pub async fn detach(
 #[serde(rename_all = "camelCase")]
 pub struct StatusData {
     pub user: Option<User>,
-    pub env: String,
-    pub hub: HubReach,
+    pub hub: Option<HubReach>,
     pub binding: Option<BindingData>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HubReach {
+    pub url: String,
     pub reachable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latency_ms: Option<u64>,
@@ -122,6 +258,9 @@ pub struct BindingData {
     pub state: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// `ask-server` or `never-ask` (attach spec §5.2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approved_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -151,11 +290,25 @@ impl BindingData {
         BindingData {
             state: state_name(binding.state),
             reason: binding.reason.clone(),
+            level: binding.level.clone(),
             approved_at: binding.approved_at,
             page_id: Some(binding.page_id.clone()),
             tab: (binding.state == BindingState::Active && published).then_some("ok"),
             title: location.title,
             path: location.path,
+        }
+    }
+
+    fn only(state: &'static str, level: Option<String>, tab: Option<&'static str>) -> BindingData {
+        BindingData {
+            state,
+            reason: None,
+            level,
+            approved_at: None,
+            page_id: None,
+            title: None,
+            path: None,
+            tab,
         }
     }
 }
@@ -171,25 +324,20 @@ pub fn ago(then: u64, now: u64) -> String {
     }
 }
 
-/// The three lines of the plain status.
-pub fn status_lines(data: &StatusData, now: u64) -> [String; 3] {
-    let who = data
-        .user
-        .as_ref()
-        .map(|user| format!(" · {}", user.name))
-        .unwrap_or_default();
-    let tab = match &data.binding {
-        None => "none · to bind: gecko attach".to_owned(),
+fn tab_line(binding: Option<&BindingData>, now: u64) -> String {
+    let text = match binding {
+        None => "none · to bind: gecko attach <code> (copy the line from the Gecko tab)".to_owned(),
         Some(b) if b.tab == Some("busy") => "unknown · another gecko call is running".to_owned(),
         Some(b) => match b.state {
             "suspended" => {
-                "suspended (its connection dropped; it may come back within 60 s)".to_owned()
+                "suspended (the tab is reloading or its connection dropped; the binding lasts if it comes back)"
+                    .to_owned()
             }
             "gone" => format!("ended: {}", gone_message(b.reason.as_deref())),
             "active" => {
                 let approved = b
                     .approved_at
-                    .map(|at| format!(" (approved {})", ago(at, now)))
+                    .map(|at| format!(" (attached {})", ago(at, now)))
                     .unwrap_or_default();
                 let location = Where {
                     title: b.title.clone(),
@@ -203,30 +351,43 @@ pub fn status_lines(data: &StatusData, now: u64) -> [String; 3] {
             _ => "in a state this gecko does not know; update gecko".to_owned(),
         },
     };
-    let hub = if data.hub.reachable {
-        match data.hub.latency_ms {
-            Some(ms) => format!("reachable · {ms} ms"),
-            None => "reachable".to_owned(),
-        }
-    } else {
-        "unreachable".to_owned()
-    };
-    [
-        format!("env     {}{who}", data.env),
-        format!("tab     {tab}"),
-        format!("hub     {hub}"),
-    ]
+    format!("tab     {text}")
+}
+
+/// The lines of the plain status: who, the tab, its level, the hub.
+pub fn status_lines(data: &StatusData, now: u64) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Some(user) = &data.user {
+        lines.push(format!("user    {}", user.name));
+    }
+    lines.push(tab_line(data.binding.as_ref(), now));
+    if let Some(binding) = &data.binding
+        && binding.state != "gone"
+        && let Some(level) = &binding.level
+    {
+        lines.push(format!("level   {}", level_text(level)));
+    }
+    if let Some(hub) = &data.hub {
+        let reach = if hub.reachable {
+            match hub.latency_ms {
+                Some(ms) => format!("reachable · {ms} ms"),
+                None => "reachable".to_owned(),
+            }
+        } else {
+            "unreachable".to_owned()
+        };
+        lines.push(format!("hub     {} · {reach}", hub.url));
+    }
+    lines
 }
 
 /// The status as a result: `--json` gets the fields and the tab line, plain text all
-/// three lines.
+/// the lines.
 pub fn status_outcome(data: &StatusData, json: bool, now: u64) -> Outcome {
-    let lines = status_lines(data, now);
     if !json {
-        return Outcome::done(lines.join("\n"));
+        return Outcome::done(status_lines(data, now).join("\n"));
     }
-    let [_, tab, _] = lines;
-    let mut outcome = Outcome::done(tab);
+    let mut outcome = Outcome::done(tab_line(data.binding.as_ref(), now));
     outcome.data = serde_json::to_value(data).ok();
     // The title and the path are the tab's own words.
     if let Some(binding) = &data.binding {
@@ -240,57 +401,58 @@ pub fn status_outcome(data: &StatusData, json: bool, now: u64) -> Outcome {
     outcome
 }
 
-/// Gathers the status. Never pairs. Not signed in: exit 6; hub unreachable: exit 4;
-/// `busy` (another gecko call holds the grant's one live connection): the local part
-/// and a line that says so, exit 0.
-pub async fn status(
-    args: &[String],
-    options: &Options,
-    config: &Config,
-) -> Result<Outcome, Failure> {
-    let env = env_of(args, options, config)?;
-    let Some(token) = config.read_token(&env) else {
-        return Err(Failure::new(
-            "not-logged-in",
-            format!("not signed in: run gecko login --env {env}"),
-        ));
+/// Gathers the status. Never binds. No binding: exit 0 and says how to bind; hub
+/// unreachable: exit 4; `busy` (another gecko call holds the grant's one live
+/// connection): the local part and a line that says so, exit 0.
+pub async fn status(options: &Options, config: &Config) -> Result<Outcome, Failure> {
+    let Some(token) = config.read_token() else {
+        let data = StatusData {
+            user: None,
+            hub: None,
+            binding: None,
+        };
+        return Ok(status_outcome(&data, options.json, now_ms()));
     };
+    let user = User {
+        id: token.user.id.clone(),
+        name: token.user.name.clone(),
+    };
+    let (url, level) = (token.hub.clone(), token.level.clone());
     let started = Instant::now();
-    let data = match session::open(&env, config).await {
+    let data = match session::open_with(config, token).await {
         Ok(session) => {
             let latency = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             let data = StatusData {
                 user: Some(session.status.user.clone()),
-                env: env.clone(),
-                hub: HubReach {
+                hub: Some(HubReach {
+                    url,
                     reachable: true,
                     latency_ms: Some(latency),
-                },
+                }),
                 binding: session.status.binding.as_ref().map(BindingData::of),
             };
-            close(session).await;
+            session.hub.close().await;
             data
         }
         // The 4409 close is the hub's own answer: it is up.
         Err(failure) if failure.code == "busy" => StatusData {
-            user: Some(User {
-                id: token.user.id,
-                name: token.user.name,
-            }),
-            env: env.clone(),
-            hub: HubReach {
+            user: Some(user),
+            hub: Some(HubReach {
+                url,
                 reachable: true,
                 latency_ms: None,
-            },
-            binding: Some(BindingData {
-                state: "unknown",
-                reason: None,
-                approved_at: None,
-                page_id: None,
-                title: None,
-                path: None,
-                tab: Some("busy"),
             }),
+            binding: Some(BindingData::only("unknown", Some(level), Some("busy"))),
+        },
+        // The refresh was refused: the binding ended, and its token is gone.
+        Err(failure) if failure.code == "gone" => StatusData {
+            user: Some(user),
+            hub: Some(HubReach {
+                url,
+                reachable: true,
+                latency_ms: None,
+            }),
+            binding: Some(BindingData::only("gone", None, None)),
         },
         Err(failure) => return Err(failure),
     };
@@ -301,17 +463,21 @@ pub async fn status(
 mod tests {
     use super::*;
 
+    fn words(list: &[&str]) -> Vec<String> {
+        list.iter().map(|w| (*w).to_owned()).collect()
+    }
+
     fn data(binding: Option<BindingData>) -> StatusData {
         StatusData {
             user: Some(User {
                 id: "u1".into(),
                 name: "Zahit".into(),
             }),
-            env: "dev".into(),
-            hub: HubReach {
+            hub: Some(HubReach {
+                url: "http://127.0.0.1:4400".into(),
                 reachable: true,
                 latency_ms: Some(12),
-            },
+            }),
             binding,
         }
     }
@@ -320,11 +486,42 @@ mod tests {
         BindingData {
             state: "active",
             reason: None,
+            level: Some("ask-server".into()),
             approved_at: Some(1_000),
             page_id: Some("p1".into()),
             title: Some("Tasks".into()),
             path: Some("/tasks".into()),
             tab: Some("ok"),
+        }
+    }
+
+    #[test]
+    fn attach_arguments() {
+        assert_eq!(
+            attach_args(&words(&["gk1_x"])).unwrap(),
+            AttachArgs {
+                code: "gk1_x".into(),
+                trust_hub: false
+            }
+        );
+        assert_eq!(
+            attach_args(&words(&["--trust-hub", "-"])).unwrap(),
+            AttachArgs {
+                code: "-".into(),
+                trust_hub: true
+            }
+        );
+        assert!(
+            attach_args(&words(&["gk1_x", "--trust-hub"]))
+                .unwrap()
+                .trust_hub
+        );
+        for bad in [&[][..], &["--new"], &["a", "b"], &["--trust-hub"]] {
+            assert_eq!(
+                attach_args(&words(bad)).unwrap_err().code,
+                "usage",
+                "{bad:?}"
+            );
         }
     }
 
@@ -343,14 +540,20 @@ mod tests {
         assert_eq!(
             status_lines(&data(Some(active())), now),
             [
-                "env     dev · Zahit".to_owned(),
-                "tab     bound (approved 7 min ago) · Tasks · /tasks".to_owned(),
-                "hub     reachable · 12 ms".to_owned(),
+                "user    Zahit",
+                "tab     bound (attached 7 min ago) · Tasks · /tasks",
+                "level   ask-server (changes on the server ask for approval in the tab)",
+                "hub     http://127.0.0.1:4400 · reachable · 12 ms",
             ]
         );
+        let none = StatusData {
+            user: None,
+            hub: None,
+            binding: None,
+        };
         assert_eq!(
-            status_lines(&data(None), now)[1],
-            "tab     none · to bind: gecko attach"
+            status_lines(&none, now),
+            ["tab     none · to bind: gecko attach <code> (copy the line from the Gecko tab)"]
         );
         let gone = BindingData {
             state: "gone",
@@ -360,10 +563,12 @@ mod tests {
             tab: None,
             ..active()
         };
+        let lines = status_lines(&data(Some(gone)), now);
         assert_eq!(
-            status_lines(&data(Some(gone)), now)[1],
-            "tab     ended: the bound tab was closed or reloaded; to bind again: gecko attach"
+            lines[1],
+            "tab     ended: the bound tab was closed; to bind again: gecko attach <code> (copy the line from the Gecko tab)"
         );
+        assert!(!lines.iter().any(|l| l.starts_with("level")));
     }
 
     #[test]
@@ -371,7 +576,7 @@ mod tests {
         let outcome = status_outcome(&data(Some(active())), true, 1_000);
         assert_eq!(
             outcome.summary.as_deref(),
-            Some("tab     bound (approved just now) · Tasks · /tasks")
+            Some("tab     bound (attached just now) · Tasks · /tasks")
         );
         assert_eq!(
             outcome.untrusted,
@@ -379,19 +584,22 @@ mod tests {
         );
         let value = outcome.data.unwrap();
         assert_eq!(value["binding"]["approvedAt"], 1_000);
+        assert_eq!(value["binding"]["level"], "ask-server");
         assert_eq!(value["binding"]["pageId"], "p1");
         assert_eq!(value["hub"]["latencyMs"], 12);
+        assert_eq!(value["hub"]["url"], "http://127.0.0.1:4400");
         assert!(value["binding"].get("reason").is_none());
     }
 
     #[test]
     fn binding_data_of_a_hub_binding() {
         let binding: Binding = serde_json::from_str(
-            r#"{"bindingId":"b","state":"active","pageId":"p","approvedAt":5}"#,
+            r#"{"bindingId":"b","state":"active","pageId":"p","approvedAt":5,"level":"never-ask"}"#,
         )
         .unwrap();
         let data = BindingData::of(&binding);
         assert_eq!((data.state, data.tab), ("active", None));
+        assert_eq!(data.level.as_deref(), Some("never-ask"));
         assert_eq!(place(None), None);
         assert_eq!(
             place(Some(&Where {

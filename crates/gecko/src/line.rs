@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use gecko_hub_client::hub::{Binding, BindingState};
 use gecko_hub_client::{CallError, Closed, HubEvent, Transport};
-use gecko_wire::capabilities::{Capabilities, read_parts, version_below};
+use gecko_wire::capabilities::{Capabilities, Effect, read_parts, version_below};
 use gecko_wire::reply::{Read, Status, read_value};
 use gecko_wire::request::{self, Input, check_limits, command_name, fits};
 use serde::Deserialize;
@@ -21,10 +21,9 @@ use crate::binding::gone_message;
 use crate::config::Config;
 use crate::help;
 use crate::interrupt::Interrupts;
-use crate::output::{Failure, Io, Outcome, interactive};
-use crate::own::env_of;
+use crate::output::{Failure, Io, Outcome};
 use crate::run::{Event, Run, Step};
-use crate::session::{self, Session, call_failure, lost_failure};
+use crate::session::{self, Session, call_failure, lost_failure, no_binding};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The most a send waits for the hub's rate limit in all.
@@ -89,17 +88,11 @@ pub(crate) fn capabilities_of(binding: &Binding) -> Result<Capabilities, Failure
     Ok(caps)
 }
 
-/// The live binding, or why there is none to send to.
+/// The binding to send to, or why there is none. A suspended one counts: while its page
+/// comes back, the hub holds the send for a few seconds (attach spec §4).
 pub(crate) fn live_binding(session: &Session) -> Result<&Binding, Failure> {
     match &session.status.binding {
-        None => Err(Failure::new(
-            "no-binding",
-            "no bound tab; to bind: gecko attach",
-        )),
-        Some(b) if b.state == BindingState::Suspended => Err(Failure::new(
-            "tab-unreachable",
-            "the bound tab cannot be reached right now (its connection dropped); the binding lasts if it returns within 60 s",
-        )),
+        None => Err(no_binding()),
         Some(b) if b.state == BindingState::Gone => {
             Err(Failure::new("gone", gone_message(b.reason.as_deref())))
         }
@@ -137,26 +130,24 @@ pub fn precheck(input: &Input) -> Result<String, Failure> {
     Ok(name.to_owned())
 }
 
-pub struct LineRun<'a> {
-    pub options: &'a Options,
-    pub config: &'a Config,
-    /// A person at a terminal may start pairing on the way (UX U2).
-    pub auto_pair: bool,
-}
-
+/// Sends a line to the bound tab. Without a binding it ends with `no-binding` at once:
+/// a binding starts only from a code copied out of a tab (attach spec §3.1).
 pub async fn run(
-    this: LineRun<'_>,
+    options: &Options,
+    config: &Config,
     input: Input,
     io: &mut Io<'_>,
     interrupts: &mut Interrupts,
 ) -> Result<Outcome, Failure> {
     let name = precheck(&input)?;
-    let env = env_of(&[], this.options, this.config)?;
-    let mut session = session::open(&env, this.config).await?;
-    let result = run_in(&this, &mut session, &input, &name, io, interrupts).await;
+    let mut session = session::open(config).await?;
+    let result = run_in(options, &mut session, &input, &name, io, interrupts).await;
     session.hub.close().await;
     result
 }
+
+/// The note under a server change that ran without the card (attach spec §5.4).
+const NO_APPROVAL_NOTE: &str = "(ran without approval: binding level never-ask)";
 
 async fn refresh(session: &mut Session) -> Result<(), Failure> {
     let raw = session
@@ -174,19 +165,13 @@ async fn refresh(session: &mut Session) -> Result<(), Failure> {
 }
 
 async fn run_in(
-    this: &LineRun<'_>,
+    options: &Options,
     session: &mut Session,
     input: &Input,
     name: &str,
     io: &mut Io<'_>,
     interrupts: &mut Interrupts,
 ) -> Result<Outcome, Failure> {
-    if session.status.binding.is_none() && this.auto_pair {
-        io.info("No bound tab; opening the binding page in the browser (Ctrl+C to give up)");
-        session::pair(session, io, interrupts).await?;
-        io.info("Attached.");
-        refresh(session).await?;
-    }
     let mut caps = capabilities_of(live_binding(session)?)?;
     if caps.is_sensitive(name) {
         return Err(Failure::new(
@@ -219,9 +204,10 @@ async fn run_in(
         ));
     };
     let danger_change = command.danger.is_change();
+    let server_change = danger_change && command.effect() == Effect::Server;
     let v = caps.envelope().unwrap_or(1);
     let id = new_id();
-    let envelope = request::cli_request(v, &id, input, this.options.view.as_deref());
+    let envelope = request::cli_request(v, &id, input, options.view.as_deref());
     if !fits(&envelope) {
         return Err(Failure::new("too-large", "the request is over 16 KB"));
     }
@@ -259,7 +245,7 @@ async fn run_in(
                 Ok(HubEvent::Binding(raw)) => match serde_json::from_str::<Binding>(raw.get()) {
                     Ok(b) if b.state == BindingState::Gone && b.reason.as_deref() == Some("revoked") => Event::Revoked,
                     Ok(b) if b.state == BindingState::Gone => Event::Lost(gone_message(b.reason.as_deref())),
-                    Ok(b) if b.state == BindingState::Suspended => Event::Lost("the bound tab's connection dropped".to_owned()),
+                    Ok(b) if b.state == BindingState::Suspended => Event::TabLeft,
                     _ => continue,
                 },
                 Ok(_) => continue,
@@ -299,7 +285,7 @@ async fn run_in(
             }
             Step::End(outcome) => {
                 if !io.json
-                    && (this.options.view.is_some()
+                    && (options.view.is_some()
                         || name.to_ascii_lowercase().starts_with("dataview."))
                     && let Some(view) = &outcome.view
                 {
@@ -307,6 +293,13 @@ async fn run_in(
                         "View: {}",
                         view.title.as_deref().unwrap_or(&view.id)
                     ));
+                }
+                if !io.json
+                    && server_change
+                    && outcome.status == "ok"
+                    && outcome.approval.as_deref() == Some("none")
+                {
+                    io.info(NO_APPROVAL_NOTE);
                 }
                 return Ok(*outcome);
             }
@@ -408,11 +401,9 @@ pub(crate) async fn send(session: &mut Session, envelope: &Value) -> Result<Stam
                     "gone" => Failure::new("gone", gone_message(error.reason.as_deref())),
                     "tab-unreachable" => Failure::new(
                         "tab-unreachable",
-                        "the bound tab cannot be reached right now (its connection dropped); the binding lasts if it returns within 60 s",
+                        "the bound tab did not answer in time (it is reloading or its connection dropped); safe to run again",
                     ),
-                    "no-binding" => {
-                        Failure::new("no-binding", "no bound tab; to bind: gecko attach")
-                    }
+                    "no-binding" => no_binding(),
                     "busy" => Failure::new("busy", "the terminal is busy; try again"),
                     _ => Failure::new(error.code.clone(), error.message.unwrap_or(error.code)),
                 }));
@@ -464,13 +455,4 @@ async fn unknown_name(
         outcome.untrusted.push("message");
     }
     Ok(Some(outcome))
-}
-
-/// UX U2: stdin and stderr are terminals, no `--json`, no `--line`.
-pub fn may_auto_pair(json: bool, line: bool) -> bool {
-    use std::io::IsTerminal;
-    !json
-        && !line
-        && interactive(std::io::stdin().is_terminal())
-        && interactive(std::io::stderr().is_terminal())
 }

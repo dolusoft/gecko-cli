@@ -1,5 +1,5 @@
 //! The hub's own answers, which the CLI reads (#1974 item 10):
-//! `status`, a binding, a pairing code. Unknown fields are ignored and an unknown
+//! `status` and a binding. Unknown fields are ignored and an unknown
 //! binding state reads as `Unknown`, so a newer hub does not break an older CLI.
 
 use serde::{Deserialize, Serialize};
@@ -40,6 +40,10 @@ pub struct Binding {
     #[serde(default)]
     pub reason: Option<String>,
     pub page_id: String,
+    /// The approval level chosen in the tab (`ask-server`, `never-ask`); kept as the
+    /// hub wrote it.
+    #[serde(default)]
+    pub level: Option<String>,
     /// Milliseconds since the epoch.
     #[serde(default)]
     pub approved_at: Option<u64>,
@@ -54,20 +58,8 @@ pub struct Binding {
 #[serde(rename_all = "camelCase")]
 pub struct HubStatus {
     pub user: User,
-    pub env: String,
     pub grant_id: String,
     pub binding: Option<Binding>,
-}
-
-/// The answer to `pair`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PairCode {
-    pub code: String,
-    /// Milliseconds since the epoch, on the hub's clock.
-    pub expires_at: u64,
-    /// The pairing page, `<web origin>/cli-pair#<code>`.
-    pub url: String,
 }
 
 #[cfg(test)]
@@ -79,12 +71,13 @@ mod tests {
         let status: HubStatus = serde_json::from_str(
             r#"{"user":{"id":"u1","name":"Zahit"},"env":"127.0.0.1:4400","grantId":"g1",
                 "binding":{"bindingId":"b1","state":"active","pageId":"p1","approvedAt":5,
-                "capabilities":{"kind":"capabilities"},"extra":1}}"#,
+                "level":"never-ask","capabilities":{"kind":"capabilities"},"extra":1}}"#,
         )
         .unwrap();
         let binding = status.binding.unwrap();
         assert_eq!(binding.state, BindingState::Active);
         assert_eq!(binding.approved_at, Some(5));
+        assert_eq!(binding.level.as_deref(), Some("never-ask"));
         assert_eq!(
             binding.capabilities.unwrap().get(),
             "{\"kind\":\"capabilities\"}"
@@ -111,14 +104,6 @@ mod tests {
         )
         .unwrap();
         assert!(none.binding.is_none());
-    }
-
-    #[test]
-    fn pair_code() {
-        let code: PairCode = serde_json::from_str(
-            r#"{"code":"4UAP-6CKG","expiresAt":1794315219579,"url":"http://127.0.0.1:1/cli-pair#4UAP-6CKG"}"#,
-        )
-        .unwrap();
-        assert_eq!(code.code, "4UAP-6CKG");
+        assert_eq!(binding.level, None);
     }
 }

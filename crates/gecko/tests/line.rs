@@ -192,16 +192,12 @@ fn signed_in(name: &str, host: &str) -> PathBuf {
         .join(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("config.json"), json!({ "env": host }).to_string()).unwrap();
     let token = json!({
-        "env": host, "accessToken": "at-1", "accessExpiresAt": now_ms() + 3_600_000,
-        "refreshToken": "rt-1", "grantId": "g_1", "user": { "id": "u1", "name": "Zahit" }
+        "hub": format!("http://{host}"), "accessToken": "at-1",
+        "accessExpiresAt": now_ms() + 3_600_000, "refreshToken": "rt-1", "grantId": "g_1",
+        "bindingId": "b1", "level": "ask-server", "user": { "id": "u1", "name": "Zahit" }
     });
-    std::fs::write(
-        dir.join(format!("token-{}.json", host.replace(':', "_"))),
-        token.to_string(),
-    )
-    .unwrap();
+    std::fs::write(dir.join("token.json"), token.to_string()).unwrap();
     dir
 }
 
@@ -218,7 +214,6 @@ fn gecko(dir: &Path, args: &[&str]) -> Command {
     command
         .args(args)
         .env("GECKO_CONFIG_DIR", dir)
-        .env("GECKO_BROWSER", "none")
         .env_remove("GECKO_TRANSPORT")
         .env_remove("GECKO_TEST_INTERRUPT_STDIN")
         .env_remove("GECKO_TEST_TTY")
@@ -389,7 +384,7 @@ fn a_lost_connection_after_a_change_started_is_unknown() {
 }
 
 #[test]
-fn a_preview_names_the_confirmed_line() {
+fn a_preview_is_only_a_preview() {
     let plan = Plan {
         capabilities: standard_caps(),
         replies: vec![
@@ -400,12 +395,18 @@ fn a_preview_names_the_confirmed_line() {
         ],
         ..Plan::default()
     };
-    let (output, _) = run("preview", plan, &["tasks.stop", "--id", "8812"]);
-    assert_eq!(output.status.code(), Some(0));
-    assert_eq!(
-        text(&output.stdout),
-        "Preview: 1 task stops. To run it: gecko tasks.stop --id 8812 --yes\n"
+    let (output, seen) = run(
+        "preview",
+        plan,
+        &["tasks.stop", "--id", "8812", "--dry-run"],
     );
+    assert_eq!(output.status.code(), Some(0));
+    // `--dry-run` stays in the line the tab gets; no line to confirm with is printed.
+    assert_eq!(
+        seen.envelopes[0]["argv"],
+        json!(["tasks.stop", "--id", "8812", "--dry-run"])
+    );
+    assert_eq!(text(&output.stdout), "Preview: 1 task stops\n");
 }
 
 #[test]
@@ -558,18 +559,18 @@ fn help_json_and_help_lines() {
 }
 
 #[test]
-fn help_without_a_login() {
+fn help_without_a_binding() {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("line")
-        .join("help-no-login");
+        .join("help-no-binding");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let output = gecko(&dir, &["help"]).output().unwrap();
     assert_eq!(output.status.code(), Some(0));
     assert!(text(&output.stdout).starts_with("gecko: remote control"));
-    assert!(text(&output.stderr).contains("gecko login --env <env>"));
+    assert!(text(&output.stderr).contains("gecko attach <code>"));
 
     let output = gecko(&dir, &["--json", "help"]).output().unwrap();
-    assert_eq!(output.status.code(), Some(6));
-    assert_eq!(json_of(&output)["code"], "not-logged-in");
+    assert_eq!(output.status.code(), Some(4));
+    assert_eq!(json_of(&output)["code"], "no-binding");
 }

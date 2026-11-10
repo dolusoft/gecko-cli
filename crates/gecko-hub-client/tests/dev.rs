@@ -1,5 +1,5 @@
 //! The development transport against a scripted hub in the same process. The real
-//! development hub has its own tests (`crates/gecko-dev-hub/tests/hub.rs`).
+//! development hub has its own tests (`crates/testkit/tests/hub.rs`).
 // Test helpers outside #[test] functions; the upgrade callback's error type is
 // tungstenite's own, large by design.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::result_large_err)]

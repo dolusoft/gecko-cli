@@ -22,9 +22,8 @@ CLI Rust'a taşınıyor; plan ve kararlar [docs/rust-migration.md](docs/rust-mig
 
 - `crates/gecko/`: ikili. `args.rs` seçenekler (`args_os`, geçersiz Unicode'da kod 2), `main.rs` yardım, sürüm ve `dev-hub` anahtarı.
 - `crates/gecko-wire/`: zarflar ve `--json` için ASCII JSON yazıcısı. Sekmeden okunan enum'lar `#[serde(other)]` taşır.
-- `crates/gecko-hub-client/`: `Transport` trait'i, anlamsal `Closed` nedenleri, `HubError`. SignalR istemcisi adım 4b'de `spikes/signalr-manual/`'dan buraya gelir ([docs/signalr-trial.md](docs/signalr-trial.md)).
+- `crates/gecko-hub-client/`: `Transport` trait'i, anlamsal `Closed` nedenleri, `HubError`. `signalr/` elle yazılmış dar SignalR istemcisi ([docs/signalr-trial.md](docs/signalr-trial.md)); `net.rs` TCP/TLS ve vekil tüneli; `proxy.rs` `*_proxy`/`no_proxy` kuralı.
 - `crates/gecko-dev-hub/`: `dev-hub` cargo özelliğinin arkasında (K1). Varsayılan derleme özelliği açar; sürüm derlemesi `--no-default-features` ile yapılır ve "this build has no dev hub" der.
-- `spikes/`: deneme crate'leri, kendi `[workspace]` tablolarıyla; workspace'e girmez.
 - `tests/signalr-hub/`: SignalR istemci testleri için en küçük ASP.NET Core hub'ı.
 - Ortam değişkenleri ve test kancaları: [docs/test-hooks.md](docs/test-hooks.md). Rust aynı adları okur.
 
@@ -51,7 +50,7 @@ cargo test --workspace --no-default-features
 - CLI'nın açılış yolu ağ ve hub modülü yüklemez; `pnpm measure:startup` `gecko help` için 300 ms sınırını denetler.
 - `stdout` yalnız sonuç; bilgi `stderr`'e. `--json` ASCII.
 - Token yalnız `Authorization` başlığında; asla adreste.
-- Kod ve kod yorumları İngilizce; README, commit mesajı, PR Türkçe. Makine anahtarları İngilizce.
+- Kod ve kod yorumları İngilizce; commit mesajı, PR ve `docs/` Türkçe. README İngilizce ve kısa (K6; Rust ürünüyle, adım 5'te yeniden yazılır). Makine anahtarları İngilizce.
 
 ## Dallar ve PR
 

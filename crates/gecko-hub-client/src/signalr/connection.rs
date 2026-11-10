@@ -8,15 +8,17 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::time::{sleep_until, timeout, Instant};
+use tokio::time::{Instant, sleep_until, timeout};
+use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::{self, Message};
-use tokio_tungstenite::WebSocketStream;
 use url::Url;
 
-use crate::protocol::{self, Closed, Incoming, RecordReader};
-use crate::stream::{self, Stream};
+use super::protocol::{self, Incoming, RecordReader};
+use crate::Closed;
+use crate::net::{self, Stream};
+use crate::proxy::ProxyRule;
 
 #[derive(Clone, Debug)]
 pub struct Options {
@@ -30,13 +32,19 @@ pub struct Options {
     /// Close when nothing arrived from the server for this long (SignalR default 30 s).
     pub server_timeout: Duration,
     pub handshake_timeout: Duration,
+    /// How long one hub method may take before `invoke` gives up on its answer.
+    pub invoke_timeout: Duration,
     pub user_agent: String,
+    /// The proxy rule for negotiate and the WebSocket alike.
+    pub proxy: ProxyRule,
     /// The framed handshake request; only tests change it.
     #[doc(hidden)]
     pub handshake: String,
 }
 
 impl Options {
+    /// Defaults: skip negotiation, SignalR's keep-alive and timeouts, a 10 s answer limit
+    /// per method (as the Node CLI's RPC), and the proxy rule from the environment.
     pub fn new(url: impl Into<String>, token: impl Into<String>) -> Self {
         Self {
             url: url.into(),
@@ -45,7 +53,9 @@ impl Options {
             keep_alive: Duration::from_secs(15),
             server_timeout: Duration::from_secs(30),
             handshake_timeout: Duration::from_secs(15),
-            user_agent: concat!("gecko-signalr-trial/", env!("CARGO_PKG_VERSION")).to_owned(),
+            invoke_timeout: Duration::from_secs(10),
+            user_agent: concat!("gecko/", env!("CARGO_PKG_VERSION")).to_owned(),
+            proxy: ProxyRule::from_env(),
             handshake: protocol::HANDSHAKE_REQUEST.to_owned(),
         }
     }
@@ -57,6 +67,9 @@ pub enum InvokeError {
     Closed(Closed),
     /// A Completion with `error`.
     Failed(String),
+    /// No Completion within `invoke_timeout`. The method may still have run, so the caller
+    /// treats its outcome as unknown; the connection stays open.
+    TimedOut,
 }
 
 /// A server-to-client invocation that needs no answer (`Reply`, `binding`, ...).
@@ -66,19 +79,24 @@ pub struct Event {
     pub arguments: Vec<Box<RawValue>>,
 }
 
+type Answer = Result<Option<Box<RawValue>>, String>;
+
+#[derive(Debug)]
 enum Command {
     Invoke {
         frame: String,
         id: String,
-        reply: oneshot::Sender<Result<Option<Box<RawValue>>, String>>,
+        reply: oneshot::Sender<Answer>,
     },
     Close,
 }
 
+#[derive(Debug)]
 pub struct Connection {
     commands: mpsc::UnboundedSender<Command>,
     events: mpsc::UnboundedReceiver<Event>,
     closed: watch::Receiver<Option<Closed>>,
+    invoke_timeout: Duration,
     next_id: u64,
 }
 
@@ -94,7 +112,7 @@ impl Connection {
         } else {
             negotiate(options).await?
         };
-        let mut socket = open_socket(&ws_url, &token, &options.user_agent).await?;
+        let mut socket = open_socket(&ws_url, &token, options).await?;
 
         socket
             .send(Message::text(options.handshake.clone()))
@@ -124,6 +142,7 @@ impl Connection {
             commands,
             events,
             closed,
+            invoke_timeout: options.invoke_timeout,
             next_id: 0,
         })
     }
@@ -145,13 +164,14 @@ impl Connection {
         {
             return Err(InvokeError::Closed(self.reason().await));
         }
-        match answer.await {
-            Ok(Ok(result)) => {
+        match timeout(self.invoke_timeout, answer).await {
+            Err(_) => Err(InvokeError::TimedOut),
+            Ok(Ok(Ok(result))) => {
                 Ok(result
                     .unwrap_or_else(|| RawValue::from_string("null".to_owned()).expect("null")))
             }
-            Ok(Err(error)) => Err(InvokeError::Failed(error)),
-            Err(_) => Err(InvokeError::Closed(self.reason().await)),
+            Ok(Ok(Err(error))) => Err(InvokeError::Failed(error)),
+            Ok(Err(_)) => Err(InvokeError::Closed(self.reason().await)),
         }
     }
 
@@ -188,7 +208,14 @@ fn transport(error: impl std::fmt::Display) -> Closed {
 fn status_reason(status: u16, body: &str) -> Closed {
     match status {
         401 | 403 => Closed::Unauthorized,
-        _ => Closed::Transport(format!("HTTP {status}: {}", body.trim())),
+        _ => {
+            let body = net::short_text(body);
+            if body.is_empty() {
+                Closed::Transport(format!("HTTP {status}"))
+            } else {
+                Closed::Transport(format!("HTTP {status}: {body}"))
+            }
+        }
     }
 }
 
@@ -213,11 +240,7 @@ async fn negotiate(options: &Options) -> Result<(Url, String), Closed> {
         transfer_formats: Vec<String>,
     }
 
-    stream::install_crypto_provider();
-    let client = reqwest::Client::builder()
-        .user_agent(options.user_agent.clone())
-        .build()
-        .map_err(transport)?;
+    net::install_crypto_provider();
     let mut url = Url::parse(&options.url).map_err(transport)?;
     let mut token = options.token.clone();
 
@@ -227,7 +250,17 @@ async fn negotiate(options: &Options) -> Result<(Url, String), Closed> {
         negotiate_url
             .query_pairs_mut()
             .append_pair("negotiateVersion", "1");
+        // reqwest's own proxy lookup is off: the CLI's rule decides, per address, so a
+        // redirect to another host gets its own answer.
+        let mut client = reqwest::Client::builder()
+            .user_agent(options.user_agent.clone())
+            .no_proxy();
+        if let Some(proxy) = options.proxy.proxy_for(&negotiate_url).map_err(transport)? {
+            client = client.proxy(reqwest::Proxy::all(proxy.as_str()).map_err(transport)?);
+        }
         let response = client
+            .build()
+            .map_err(transport)?
             .post(negotiate_url)
             .bearer_auth(&token)
             .send()
@@ -270,7 +303,7 @@ async fn negotiate(options: &Options) -> Result<(Url, String), Closed> {
     Err(Closed::Transport("too many negotiate redirects".to_owned()))
 }
 
-async fn open_socket(url: &Url, token: &str, user_agent: &str) -> Result<Socket, Closed> {
+async fn open_socket(url: &Url, token: &str, options: &Options) -> Result<Socket, Closed> {
     let tls = match url.scheme() {
         "https" | "wss" => true,
         "http" | "ws" => false,
@@ -280,14 +313,10 @@ async fn open_socket(url: &Url, token: &str, user_agent: &str) -> Result<Socket,
     ws_url
         .set_scheme(if tls { "wss" } else { "ws" })
         .map_err(|_| Closed::Transport("cannot build the WebSocket address".to_owned()))?;
-    let host = ws_url
-        .host_str()
-        .ok_or_else(|| Closed::Transport("address without host".to_owned()))?;
-    let port = ws_url
-        .port_or_known_default()
-        .unwrap_or(if tls { 443 } else { 80 });
 
-    let stream = stream::open(host, port, tls).await.map_err(transport)?;
+    let stream = net::open(&ws_url, &options.proxy)
+        .await
+        .map_err(transport)?;
     let mut request = ws_url.as_str().into_client_request().map_err(transport)?;
     let headers = request.headers_mut();
     headers.insert(
@@ -296,7 +325,7 @@ async fn open_socket(url: &Url, token: &str, user_agent: &str) -> Result<Socket,
     );
     headers.insert(
         "User-Agent",
-        HeaderValue::from_str(user_agent).map_err(transport)?,
+        HeaderValue::from_str(&options.user_agent).map_err(transport)?,
     );
 
     match tokio_tungstenite::client_async(request, stream).await {
@@ -322,7 +351,7 @@ async fn first_record(socket: &mut Socket, reader: &mut RecordReader) -> Result<
         match socket.next().await {
             Some(Ok(Message::Text(text))) => reader.push(text.as_str()),
             Some(Ok(Message::Close(_))) | None => {
-                return Err(Closed::Transport("closed during the handshake".to_owned()))
+                return Err(Closed::Transport("closed during the handshake".to_owned()));
             }
             Some(Ok(_)) => {}
             Some(Err(error)) => return Err(transport(error)),
@@ -330,7 +359,7 @@ async fn first_record(socket: &mut Socket, reader: &mut RecordReader) -> Result<
     }
 }
 
-type Pending = HashMap<String, oneshot::Sender<Result<Option<Box<RawValue>>, String>>>;
+type Pending = HashMap<String, oneshot::Sender<Answer>>;
 
 async fn drive(
     mut socket: Socket,
@@ -368,6 +397,7 @@ async fn drive(
             command = commands.recv() => {
                 reason = match command {
                     Some(Command::Invoke { frame, id, reply }) => {
+                        pending.retain(|_, waiting| !waiting.is_closed());
                         pending.insert(id, reply);
                         ping_at = Instant::now() + options.keep_alive;
                         socket.send(Message::text(frame)).await.err().map(transport)
@@ -441,7 +471,7 @@ async fn handle_records(
             Incoming::Close { error, .. } => {
                 // allowReconnect is read and ignored: the CLI never reconnects by itself.
                 let _ = socket.close(None).await;
-                return Some(protocol::close_reason(error.as_deref()));
+                return Some(Closed::from_close_text(error.as_deref()));
             }
         }
     }
@@ -456,6 +486,18 @@ mod tests {
     fn http_status_reasons() {
         assert_eq!(status_reason(401, ""), Closed::Unauthorized);
         assert_eq!(status_reason(403, ""), Closed::Unauthorized);
-        assert!(matches!(status_reason(500, "x"), Closed::Transport(_)));
+        assert_eq!(
+            status_reason(500, ""),
+            Closed::Transport("HTTP 500".to_owned())
+        );
+        let page = format!("<html>\n<body>{}</body>\n</html>", "z".repeat(5000));
+        match status_reason(502, &page) {
+            Closed::Transport(text) => {
+                assert!(text.starts_with("HTTP 502: <html> <body>zzz"), "{text}");
+                assert!(text.len() < 220, "{}", text.len());
+                assert!(text.ends_with("..."));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 }

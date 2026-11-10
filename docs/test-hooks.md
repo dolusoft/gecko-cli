@@ -14,6 +14,8 @@ Testler de kullanır, ama kullanıcıya açıktır; README'de anlatılır.
 | `GECKO_BROWSER`    | `none`: tarayıcı açılmaz, adres yalnız yazılır (SSH ve masaüstü olmayan oturumda da böyledir) | Masaüstü varsa açılır                                                                             |
 | `GECKO_ENV_<AD>`   | `--env <ad>` için adres takma adı; `<AD>` büyük harfle (`GECKO_ENV_STAGE=stage.ornek.com`)    | Yok                                                                                               |
 
+Vekil için genel değişkenler okunur (yalnız Rust ikilisi; [signalr-trial.md](signalr-trial.md)): `https_proxy`, `http_proxy`, `all_proxy`, `no_proxy`, ve büyük harfli adları; ikisi de varsa küçük harfli geçerlidir. HTTP ve WebSocket aynı kurala uyar. Yalnız `http://` vekil desteklenir.
+
 ## CLI test kancaları
 
 | Değişken                     | Anlamı                                                                                                            | Varsayılan        |
@@ -40,8 +42,9 @@ Testler de kullanır, ama kullanıcıya açıktır; README'de anlatılır.
 
 `tests/signalr-hub/` yalnız Rust istemcisinin testleri içindir; ürünün parçası değildir ([signalr-trial.md](signalr-trial.md)).
 
-| Değişken                     | Anlamı                                                                        | Varsayılan |
-| ---------------------------- | ----------------------------------------------------------------------------- | ---------- |
-| `TEST_HUB_KEEPALIVE_MS`      | Hub'ın `Ping` aralığı (`KeepAliveInterval`)                                   | 15000      |
-| `TEST_HUB_CLIENT_TIMEOUT_MS` | Hub'ın istemciyi düşürdüğü sessizlik süresi (`ClientTimeoutInterval`)         | 30000      |
-| `GECKO_SIGNALR_TEST_HUB`     | İstemci testlerinin bağlandığı hub adresi; yoksa testler atlanır, CI'da düşer | Yok        |
+| Değişken                          | Anlamı                                                                | Varsayılan |
+| --------------------------------- | --------------------------------------------------------------------- | ---------- |
+| `TEST_HUB_KEEPALIVE_MS`           | Hub'ın `Ping` aralığı (`KeepAliveInterval`)                           | 15000      |
+| `TEST_HUB_CLIENT_TIMEOUT_MS`      | Hub'ın istemciyi düşürdüğü sessizlik süresi (`ClientTimeoutInterval`) | 30000      |
+| `GECKO_SIGNALR_TEST_HUB`          | İstemci testlerinin bağlandığı hub adresi; yoksa testler atlanır      | Yok        |
+| `GECKO_SIGNALR_TEST_HUB_REQUIRED` | `1`: hub adresi yoksa testler düşer (CI'ın `signalr` işi koyar)       | Kapalı     |

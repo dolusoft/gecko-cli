@@ -292,13 +292,13 @@ Kullanım dar (çağrı başına tek kısa bağlantı, JSON, WebSocket, akış y
 
 **Adım 4a — SignalR denemesi** (§7.4). `Transport` trait'inin biçimini belirler; Rust işinden önce. **Yapıldı** (2026-11-10): elle yazılmış dar istemci, [signalr-trial.md](signalr-trial.md).
 
-**Adım 4b — Rust CLI**, mevcut Node hub'ına karşı: sözleşme testleri, argüman matrisi (DC-3), ölçümler. Workspace iskeleti **yapıldı** (2026-11-10): dört crate, `args_os` ayrıştırması, `--help`/`--version`, `dev-hub` özelliği, ASCII JSON yazıcısı, Windows/Ubuntu/macOS CI'ı ve `gecko-dev` artefaktı. Ölçüm: `--help` p50 3,5 ms, sürüm ikilisi 115 KB (Windows 11, 20 örnek).
+**Adım 4b — Rust CLI**, mevcut Node hub'ına karşı: sözleşme testleri, argüman matrisi (DC-3), ölçümler. Workspace iskeleti **yapıldı** (2026-11-10): dört crate, `args_os` ayrıştırması, `--help`/`--version`, `dev-hub` özelliği, ASCII JSON yazıcısı, Windows/Ubuntu/macOS CI'ı ve `gecko-dev` artefaktı. Ölçüm: `--help` p50 3,5 ms, sürüm ikilisi 115 KB (Windows 11, 20 örnek). 4b-1 **yapıldı** (2026-11-10): SignalR istemcisi `gecko-hub-client`'te; vekil tüneli, kısaltılmış HTTP hata metni, çağrı başına cevap süresi ([signalr-trial.md](signalr-trial.md)).
 
 **Adım 4c — çapraz matris** (§12 kararı Rust hub ise): Rust hub ↔ TypeScript CLI, Rust hub ↔ frontendx `devHubTransport`, sonra Rust ↔ Rust. TypeScript silinince bu kanıt bir daha üretilemez (F34).
 
 **Adım 4d — uçtan uca kapı:** Rust ikilisi gerçek frontendx'e (yeni çekirdekle) ve geliştirme hub'ına karşı.
 
-**Adım 5 — ilk Rust yayını ve TypeScript ürün kodunun silinmesi.** İlk yayın **yalnız geliştirme hub'ıyla** çalışır; bu README'de açıkça yazılır (A15). Kurulum betikleri.
+**Adım 5 — ilk Rust yayını ve TypeScript ürün kodunun silinmesi.** İlk yayın **yalnız geliştirme hub'ıyla** çalışır; bu README'de açıkça yazılır (A15). Kurulum betikleri. README bu adımda İngilizce ve kısa olarak yeniden yazılır (K6).
 
 **Adım 6 — repo public** (A15: backend'e bağlanmaz). Ön koşullar (F33): lisans (`LICENSE`, `UNLICENSED` kalkar), private repolara bağlantılar temizlenir (README, `docs/`, `CHANGELOG.md`, `AGENTS.md`), git geçmişi gizli bilgi için taranır.
 
@@ -344,6 +344,7 @@ Anahtar deposu (token dosyada kalır) · kurulumlu masaüstü paketi (imza, `.ms
 | K2  | **Bütün kullanıcı metinleri İngilizce**: CLI'nın kendi metinleri, sekmenin CLI'ya döndüğü mesaj, yardım ve öneriler. **[FARK]** Bugün CLI metinleri Türkçe. `help-request`'te dil alanı yok. README ve skill örnekleri buna göre güncellenir. Kod 1–6 ve 130 anlamları değişmez                                                                                                                                                                                                                                 |
 | K3  | Tarayıcıda iptal edilen komut: `class: cancelled` → **kod 1**. **[FARK]** Bugün 130. 130 yalnız CLI'daki Ctrl+C                                                                                                                                                                                                                                                                                                                                                                                                 |
 | K4  | Adım 0 hataları spec onayından sonra issue olarak açılır; hızlı düzeltilip merge edilir                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| K6  | README **İngilizce ve kısa** (2026-11-10). Repo müşteriye açılacağı için; kurulum, giriş, bağlanma, örnek komutlar ve çıkış kodları. Ayrıntı `docs/`'ta kalır. Ürün Rust'a geçince (adım 5) yazılır                                                                                                                                                                                                                                                                                                             |
 
 **Uygulayıcılar arası anlaşmalar (2026-11-10, gecko-cli ↔ command-console oturumları; Zahid kararı değil, tasarım ayrıntısı):** S1 yetenek listesi `publishCapabilities` yöntemiyle (§5.8) · S2 konum `publishWhere` yöntemiyle (§5.9) · S3 command-console `fixtures/remote/sequence/` örneklerinin beklenen kodları gecko-cli tarafının onayıyla merge edilir · K-h hata cevabında `help` alanı (§5.4).
 

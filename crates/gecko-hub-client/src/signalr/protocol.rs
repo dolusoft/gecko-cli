@@ -8,6 +8,8 @@
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
+use crate::HubError;
+
 /// Record separator that ends every JSON record.
 pub const RS: char = '\u{1e}';
 
@@ -16,7 +18,7 @@ pub const HANDSHAKE_REQUEST: &str = "{\"protocol\":\"json\",\"version\":1}\u{1e}
 
 /// Splits incoming text into records. A WebSocket message may hold several records,
 /// and a record is kept across messages until its separator arrives.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct RecordReader {
     pending: String,
 }
@@ -34,6 +36,7 @@ impl RecordReader {
         Some(record)
     }
 
+    #[cfg(test)]
     pub fn has_partial(&self) -> bool {
         !self.pending.is_empty()
     }
@@ -68,10 +71,12 @@ pub enum Incoming {
     Ping,
     Close {
         error: Option<String>,
+        /// Read and ignored: the CLI never reconnects by itself.
+        #[allow(dead_code)]
         allow_reconnect: bool,
     },
-    /// A message type the CLI does not use; carries the type number.
-    Ignored(u64),
+    /// A message type the CLI does not use; carries the type number for debugging.
+    Ignored(#[allow(dead_code)] u64),
 }
 
 pub fn parse_message(record: &str) -> Result<Incoming, String> {
@@ -136,51 +141,7 @@ pub fn no_result_completion(invocation_id: &str) -> String {
 pub const PING: &str = "{\"type\":6}\u{1e}";
 pub const CLOSE: &str = "{\"type\":7}\u{1e}";
 
-/// Why a connection ended, in the CLI's terms rather than by number (spec §7.2, B18).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Closed {
-    /// 401/403 on negotiate or upgrade, `4401`, or `4403` (token in the query string).
-    Unauthorized,
-    /// `4409`: the grant already has a live CLI connection.
-    Busy,
-    /// `4410`: the grant was revoked while bound.
-    Revoked,
-    /// The server refused the handshake.
-    Handshake(String),
-    /// A Close message without a known code; carries its text, if any.
-    Server(Option<String>),
-    /// Nothing arrived from the server within the server timeout.
-    ServerTimeout,
-    /// The socket failed or ended without a Close message.
-    Transport(String),
-    /// The client closed it.
-    Local,
-}
-
-/// Maps a Close error text of the form `"<code> <name>"` (#1974) to a reason.
-pub fn close_reason(error: Option<&str>) -> Closed {
-    let Some(text) = error else {
-        return Closed::Server(None);
-    };
-    let code = text.split(' ').next().unwrap_or("");
-    match code {
-        "4401" | "4403" => Closed::Unauthorized,
-        "4409" => Closed::Busy,
-        "4410" => Closed::Revoked,
-        _ => Closed::Server(Some(text.to_owned())),
-    }
-}
-
-/// A hub method's answer (#1974): `{ ok: true, value }` or `{ ok: false, error }`.
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct HubError {
-    pub code: String,
-    pub message: Option<String>,
-    pub reason: Option<String>,
-    pub retry_after_ms: Option<u64>,
-}
-
+/// Reads a hub method's answer (#1974): `{ ok: true, value }` or `{ ok: false, error }`.
 pub fn hub_result(result: &RawValue) -> Result<Box<RawValue>, HubError> {
     #[derive(Deserialize)]
     struct Envelope {
@@ -280,25 +241,24 @@ mod tests {
                 error,
                 allow_reconnect,
             } => {
-                assert_eq!(close_reason(error.as_deref()), Closed::Busy);
+                assert_eq!(
+                    crate::Closed::from_close_text(error.as_deref()),
+                    crate::Closed::Busy
+                );
                 assert!(allow_reconnect);
             }
             other => panic!("unexpected {other:?}"),
         }
-        assert_eq!(close_reason(Some("4410 revoked")), Closed::Revoked);
-        assert_eq!(
-            close_reason(Some("4401 unauthorized")),
-            Closed::Unauthorized
-        );
-        assert_eq!(
-            close_reason(Some("4403 token-in-query")),
-            Closed::Unauthorized
-        );
-        assert_eq!(close_reason(None), Closed::Server(None));
-        assert_eq!(
-            close_reason(Some("Connection closed with an error.")),
-            Closed::Server(Some("Connection closed with an error.".to_owned()))
-        );
+        match parse_message("{\"type\":7}").unwrap() {
+            Incoming::Close {
+                error,
+                allow_reconnect,
+            } => {
+                assert_eq!(error, None);
+                assert!(!allow_reconnect);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 
     #[test]

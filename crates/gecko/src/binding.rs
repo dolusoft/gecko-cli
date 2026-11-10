@@ -1,6 +1,6 @@
-//! The binding commands: `attach`, `detach` and `status` (Node: src/cli/main.ts,
-//! src/cli/status.ts). Where the bound tab is comes from the hub (`binding.where`,
-//! published by the tab, §5.9); the CLI no longer asks the tab for it.
+//! The binding commands: `attach`, `detach` and `status`. Where the bound tab is comes
+//! from the hub (`binding.where`, published by the tab, §5.9); the CLI does not ask the
+//! tab for it.
 
 use std::time::Instant;
 
@@ -97,7 +97,7 @@ pub async fn detach(
     Ok(Outcome::done("Detached"))
 }
 
-/// What `gecko status --json` carries in `data` (the Node build's shape).
+/// What `gecko status --json` carries in `data`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusData {

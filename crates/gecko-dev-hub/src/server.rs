@@ -21,7 +21,7 @@ use crate::hub::{Body, Hub, Kind, Options, Shared, lock};
 
 const MAX_HEAD_BYTES: usize = 16 * 1024;
 const MAX_BODY_BYTES: usize = 1024 * 1024;
-/// The largest WebSocket message the hub reads (as the Node hub's `maxPayload`).
+/// The largest WebSocket message the hub reads.
 const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 
 /// A running hub.

@@ -1,5 +1,4 @@
-//! The development transport: the development hub's JSON frames over one WebSocket
-//! (Node: src/transport/dev.ts, src/shared/rpc.ts, src/shared/wire.ts).
+//! The development transport: the development hub's JSON frames over one WebSocket.
 //!
 //! Frames: `{ t: "invoke", id, method, args? }` from the CLI, answered by
 //! `{ t: "result", id, ok: true, value }` or `{ t: "result", id, ok: false, error }`;
@@ -33,7 +32,7 @@ pub struct DevOptions {
     pub host: String,
     /// Sent only in the `Authorization` header, never in the address.
     pub token: String,
-    /// How long the hub may take to say `ready` (Node: 10 s).
+    /// How long the hub may take to say `ready` (10 s).
     pub connect_timeout: Duration,
     /// How long one hub method may take to answer.
     pub invoke_timeout: Duration,
@@ -75,7 +74,7 @@ pub struct DevTransport {
     next_id: u64,
 }
 
-/// One frame from the hub; anything else is skipped, as the Node client does.
+/// One frame from the hub; anything else is skipped.
 #[derive(Debug)]
 enum Incoming {
     Result {

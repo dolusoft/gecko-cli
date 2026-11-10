@@ -1,6 +1,6 @@
 //! ASCII JSON: every character outside printable ASCII is written as `\uXXXX`, one escape
 //! per UTF-16 code unit, so a character outside the Basic Multilingual Plane becomes a
-//! surrogate pair. U+007F is escaped too. Hex digits are lower case, as in the Node CLI.
+//! surrogate pair. U+007F is escaped too. Hex digits are lower case.
 //!
 //! JSON syntax itself is ASCII, so a non-ASCII character can only stand inside a string;
 //! escaping the serialized text is therefore exact, and it also covers `RawValue` parts

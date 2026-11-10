@@ -1,10 +1,10 @@
-//! The CLI's files (Node: src/cli/config.ts; same names and JSON, so the Node and the
-//! Rust build read each other's sign-in): the chosen environment (`config.json`), one
-//! token per environment (`token-<env>.json`, the only secret on disk) and the bound
-//! page's capability cache (`capabilities-<env>.json`).
+//! The CLI's files: the chosen environment (`config.json`), one token per environment
+//! (`token-<env>.json`, the only secret on disk) and the bound page's capability cache
+//! (`capabilities-<env>.json`). The names and the JSON are those of the earlier
+//! TypeScript build, so a sign-in it saved still reads.
 //!
 //! The token file is the user's alone: mode 0600 on POSIX (directory 0700), the user's
-//! ACL only on Windows (`icacls`, as the Node build does).
+//! ACL only on Windows (`icacls`).
 
 use std::fs;
 use std::io::{self, Write};
@@ -137,7 +137,7 @@ pub fn file_key(env: &str) -> String {
         .collect()
 }
 
-/// Two-space JSON, as the Node build writes it.
+/// Two-space JSON.
 fn pretty<T: Serialize>(value: &T) -> io::Result<String> {
     serde_json::to_string_pretty(value).map_err(io::Error::other)
 }

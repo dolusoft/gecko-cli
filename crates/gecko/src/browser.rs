@@ -1,5 +1,5 @@
 //! Opens an address in the default browser when there is a desktop; without one (SSH, a
-//! server) the caller prints the address and the code instead (Node: src/cli/browser.ts).
+//! server) the caller prints the address and the code instead.
 
 use std::process::{Command, Stdio};
 

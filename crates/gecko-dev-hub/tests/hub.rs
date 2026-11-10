@@ -1,5 +1,5 @@
 //! The Rust development hub in process: device login, the CLI and a fake tab over
-//! WebSocket. The Node contract specs check the rest (`GECKO_TEST_HUB_BIN`).
+//! WebSocket. The CLI's tests (`crates/gecko/tests/`) use a scripted hub, not this one.
 
 #![allow(clippy::unwrap_used)]
 

@@ -1,6 +1,5 @@
-//! Device sign-in (RFC 8628), token refresh and revocation (RFC 7009) over HTTP
-//! (Node: src/cli/auth.ts). Requests follow the CLI's proxy rule; the token never goes
-//! into an address.
+//! Device sign-in (RFC 8628), token refresh and revocation (RFC 7009) over HTTP.
+//! Requests follow the CLI's proxy rule; the token never goes into an address.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

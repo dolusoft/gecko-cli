@@ -412,6 +412,20 @@ fn a_refused_refresh_means_the_binding_ended() {
 }
 
 #[test]
+fn own_command_help() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("binding/help");
+    let output = run(&dir, &["attach", "--help"]);
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = text(&output.stdout);
+    assert!(stdout.starts_with("Usage: gecko attach <code>"), "{stdout}");
+    assert!(stdout.contains("--trust-hub"), "{stdout}");
+    for gone in ["login", "logout"] {
+        let output = run(&dir, &[gone, "--help"]);
+        assert_ne!(output.status.code(), Some(0), "{gone}");
+    }
+}
+
+#[test]
 fn detach_says_what_was_there() {
     let (host, log) = hub(Plan {
         binding: active_binding(),

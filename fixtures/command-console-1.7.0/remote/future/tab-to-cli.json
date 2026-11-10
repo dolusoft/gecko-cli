@@ -1,0 +1,114 @@
+[
+  {
+    "name": "unknown-field-in-received",
+    "direction": "tab-to-cli",
+    "envelope": {
+      "v": 1,
+      "kind": "received",
+      "id": "r1",
+      "hidden": false,
+      "dataAgeMs": null,
+      "change": false,
+      "viewRelevant": false,
+      "freshness": "live"
+    },
+    "expect": "accept-ignore"
+  },
+  {
+    "name": "unknown-kind",
+    "direction": "tab-to-cli",
+    "envelope": {
+      "v": 1,
+      "kind": "progress",
+      "id": "r1",
+      "percent": 40
+    },
+    "expect": "ignore"
+  },
+  {
+    "name": "unknown-outcome-status",
+    "direction": "tab-to-cli",
+    "envelope": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "partial"
+      },
+      "chunks": 0,
+      "bytes": 0
+    },
+    "expect": {
+      "default": {
+        "outcome.status": "error",
+        "exitCode": 1
+      }
+    }
+  },
+  {
+    "name": "unknown-class",
+    "direction": "tab-to-cli",
+    "envelope": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "error",
+        "code": "failed",
+        "class": "throttled"
+      },
+      "chunks": 0,
+      "bytes": 0
+    },
+    "expect": {
+      "default": {
+        "exitCode": 1
+      }
+    }
+  },
+  {
+    "name": "unknown-danger",
+    "direction": "tab-to-cli",
+    "parts": [
+      "{\"envelopes\":[1],\"features\":[\"argv\",\"received-v2\",\"suggest-argv\",\"help-v2\",\"error-class\",\"capabilities-v2\"],\"revision\":\"9f2c1a7e\",\"sensitive\":[\"login\",\"signin\"],\"commands\":[{\"name\":\"tasks.purge\",\"aliases\":[],\"danger\":\"explosive\"}]}"
+    ],
+    "expect": {
+      "default": {
+        "commands.0.danger": "change"
+      }
+    }
+  },
+  {
+    "name": "unknown-field-in-capabilities",
+    "direction": "tab-to-cli",
+    "parts": [
+      "{\"envelopes\":[1],\"features\":[\"argv\",\"received-v2\",\"suggest-argv\",\"help-v2\",\"error-class\",\"capabilities-v2\"],\"revision\":\"9f2c1a7e\",\"sensitive\":[\"login\",\"signin\"],\"commands\":[{\"name\":\"search\",\"aliases\":[\"s\"],\"danger\":\"read\"},{\"name\":\"tasks.stop\",\"aliases\":[],\"danger\":\"change\"}],\"where\":{\"title\":\"x\"}}"
+    ],
+    "expect": "accept-ignore",
+    "read": {
+      "envelopes": [1],
+      "features": [
+        "argv",
+        "received-v2",
+        "suggest-argv",
+        "help-v2",
+        "error-class",
+        "capabilities-v2"
+      ],
+      "revision": "9f2c1a7e",
+      "sensitive": ["login", "signin"],
+      "commands": [
+        {
+          "name": "search",
+          "aliases": ["s"],
+          "danger": "read"
+        },
+        {
+          "name": "tasks.stop",
+          "aliases": [],
+          "danger": "change"
+        }
+      ]
+    }
+  }
+]

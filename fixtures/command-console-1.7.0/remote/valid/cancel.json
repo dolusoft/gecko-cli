@@ -1,0 +1,29 @@
+[
+  {
+    "name": "cancel",
+    "envelope": {
+      "v": 1,
+      "kind": "cancel",
+      "id": "r1",
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "read": {
+      "v": 1,
+      "kind": "cancel",
+      "id": "r1",
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    }
+  }
+]

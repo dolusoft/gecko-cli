@@ -1,0 +1,98 @@
+[
+  {
+    "name": "one-part",
+    "parts": [
+      "{\"envelopes\":[1],\"features\":[\"argv\",\"received-v2\",\"suggest-argv\",\"help-v2\",\"error-class\",\"capabilities-v2\"],\"revision\":\"9f2c1a7e\",\"sensitive\":[\"login\",\"signin\"],\"commands\":[{\"name\":\"search\",\"aliases\":[\"s\"],\"danger\":\"read\"},{\"name\":\"tasks.stop\",\"aliases\":[],\"danger\":\"change\"}]}"
+    ],
+    "read": {
+      "envelopes": [1],
+      "features": [
+        "argv",
+        "received-v2",
+        "suggest-argv",
+        "help-v2",
+        "error-class",
+        "capabilities-v2"
+      ],
+      "revision": "9f2c1a7e",
+      "sensitive": ["login", "signin"],
+      "commands": [
+        {
+          "name": "search",
+          "aliases": ["s"],
+          "danger": "read"
+        },
+        {
+          "name": "tasks.stop",
+          "aliases": [],
+          "danger": "change"
+        }
+      ]
+    }
+  },
+  {
+    "name": "three-parts-cut-anywhere",
+    "parts": [
+      "{\"env",
+      "elopes\":[1],\"features\":[\"argv\",\"received-v2\",\"suggest-a",
+      "rgv\",\"help-v2\",\"error-class\",\"capabilities-v2\"],\"revision\":\"9f2c1a7e\",\"sensitive\":[\"login\",\"signin\"],\"commands\":[{\"name\":\"search\",\"aliases\":[\"s\"],\"danger\":\"read\"},{\"name\":\"tasks.stop\",\"aliases\":[],\"danger\":\"change\"}]}"
+    ],
+    "read": {
+      "envelopes": [1],
+      "features": [
+        "argv",
+        "received-v2",
+        "suggest-argv",
+        "help-v2",
+        "error-class",
+        "capabilities-v2"
+      ],
+      "revision": "9f2c1a7e",
+      "sensitive": ["login", "signin"],
+      "commands": [
+        {
+          "name": "search",
+          "aliases": ["s"],
+          "danger": "read"
+        },
+        {
+          "name": "tasks.stop",
+          "aliases": [],
+          "danger": "change"
+        }
+      ]
+    }
+  },
+  {
+    "name": "min-cli",
+    "parts": [
+      "{\"envelopes\":[1],\"features\":[\"argv\",\"received-v2\",\"suggest-argv\",\"help-v2\",\"error-class\",\"capabilities-v2\"],\"minCli\":\"0.3.0\",\"revision\":\"9f2c1a7e\",\"sensitive\":[\"login\",\"signin\"],\"commands\":[{\"name\":\"search\",\"aliases\":[\"s\"],\"danger\":\"read\"},{\"name\":\"tasks.stop\",\"aliases\":[],\"danger\":\"change\"}]}"
+    ],
+    "read": {
+      "envelopes": [1],
+      "features": [
+        "argv",
+        "received-v2",
+        "suggest-argv",
+        "help-v2",
+        "error-class",
+        "capabilities-v2"
+      ],
+      "minCli": "0.3.0",
+      "revision": "9f2c1a7e",
+      "sensitive": ["login", "signin"],
+      "commands": [
+        {
+          "name": "search",
+          "aliases": ["s"],
+          "danger": "read"
+        },
+        {
+          "name": "tasks.stop",
+          "aliases": [],
+          "danger": "change"
+        }
+      ]
+    }
+  }
+]

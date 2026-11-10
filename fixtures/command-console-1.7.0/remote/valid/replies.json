@@ -1,0 +1,422 @@
+[
+  {
+    "name": "received",
+    "envelope": {
+      "v": 1,
+      "kind": "received",
+      "id": "r1",
+      "hidden": false,
+      "dataAgeMs": null,
+      "change": false,
+      "viewRelevant": false
+    },
+    "read": {
+      "v": 1,
+      "kind": "received",
+      "id": "r1",
+      "hidden": false,
+      "dataAgeMs": null,
+      "change": false,
+      "viewRelevant": false
+    }
+  },
+  {
+    "name": "received-change-age",
+    "envelope": {
+      "v": 1,
+      "kind": "received",
+      "id": "r1",
+      "hidden": true,
+      "dataAgeMs": 42000,
+      "change": true,
+      "viewRelevant": true
+    },
+    "read": {
+      "v": 1,
+      "kind": "received",
+      "id": "r1",
+      "hidden": true,
+      "dataAgeMs": 42000,
+      "change": true,
+      "viewRelevant": true
+    }
+  },
+  {
+    "name": "awaiting-approval",
+    "envelope": {
+      "v": 1,
+      "kind": "awaiting-approval",
+      "id": "r1",
+      "expiresAt": 121000
+    },
+    "read": {
+      "v": 1,
+      "kind": "awaiting-approval",
+      "id": "r1",
+      "expiresAt": 121000
+    }
+  },
+  {
+    "name": "chunk",
+    "envelope": {
+      "v": 1,
+      "kind": "chunk",
+      "id": "r1",
+      "index": 0,
+      "total": 1,
+      "bytes": 7,
+      "data": "{\"a\":1}"
+    },
+    "read": {
+      "v": 1,
+      "kind": "chunk",
+      "id": "r1",
+      "index": 0,
+      "total": 1,
+      "bytes": 7,
+      "data": "{\"a\":1}"
+    }
+  },
+  {
+    "name": "finished-ok",
+    "envelope": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "ok",
+        "summary": "3 rows"
+      },
+      "chunks": 1,
+      "bytes": 7,
+      "view": {
+        "id": "v-1",
+        "title": "Tasks"
+      }
+    },
+    "read": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "ok",
+        "summary": "3 rows"
+      },
+      "chunks": 1,
+      "bytes": 7,
+      "view": {
+        "id": "v-1",
+        "title": "Tasks"
+      }
+    }
+  },
+  {
+    "name": "finished-preview-suggest",
+    "envelope": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "ok",
+        "summary": "1 task stops"
+      },
+      "chunks": 0,
+      "bytes": 0,
+      "preview": true,
+      "suggest": ["tasks.stop", "--id", "8812", "--yes"]
+    },
+    "read": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "ok",
+        "summary": "1 task stops"
+      },
+      "chunks": 0,
+      "bytes": 0,
+      "preview": true,
+      "suggest": ["tasks.stop", "--id", "8812", "--yes"]
+    }
+  },
+  {
+    "name": "finished-next",
+    "envelope": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "ok"
+      },
+      "chunks": 1,
+      "bytes": 7,
+      "next": ["tasks.list", "--cursor", "40"]
+    },
+    "read": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "ok"
+      },
+      "chunks": 1,
+      "bytes": 7,
+      "next": ["tasks.list", "--cursor", "40"]
+    }
+  },
+  {
+    "name": "finished-unknown-command-suggest",
+    "envelope": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "error",
+        "code": "unknown-command",
+        "class": "usage",
+        "message": "unknown command: tasks.lst; did you mean: tasks.list"
+      },
+      "chunks": 0,
+      "bytes": 0,
+      "suggest": ["tasks.list"]
+    },
+    "read": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "error",
+        "code": "unknown-command",
+        "class": "usage",
+        "message": "unknown command: tasks.lst; did you mean: tasks.list"
+      },
+      "chunks": 0,
+      "bytes": 0,
+      "suggest": ["tasks.list"]
+    }
+  },
+  {
+    "name": "finished-invalid-args-help",
+    "envelope": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "error",
+        "code": "invalid-args",
+        "class": "usage",
+        "message": "missing --id"
+      },
+      "chunks": 0,
+      "bytes": 0,
+      "help": "tasks.stop"
+    },
+    "read": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "error",
+        "code": "invalid-args",
+        "class": "usage",
+        "message": "missing --id"
+      },
+      "chunks": 0,
+      "bytes": 0,
+      "help": "tasks.stop"
+    }
+  },
+  {
+    "name": "finished-cancelled",
+    "envelope": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "error",
+        "code": "cancelled",
+        "class": "cancelled"
+      },
+      "chunks": 0,
+      "bytes": 0
+    },
+    "read": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "error",
+        "code": "cancelled",
+        "class": "cancelled"
+      },
+      "chunks": 0,
+      "bytes": 0
+    }
+  },
+  {
+    "name": "help-result-text",
+    "envelope": {
+      "v": 1,
+      "kind": "help-result",
+      "id": "h1",
+      "status": "ok",
+      "text": ["tasks.list  Lists the tasks", "tasks.stop  Stops a task"]
+    },
+    "read": {
+      "v": 1,
+      "kind": "help-result",
+      "id": "h1",
+      "status": "ok",
+      "text": ["tasks.list  Lists the tasks", "tasks.stop  Stops a task"]
+    }
+  },
+  {
+    "name": "help-result-json-next",
+    "envelope": {
+      "v": 1,
+      "kind": "help-result",
+      "id": "h1",
+      "status": "ok",
+      "result": {
+        "commands": []
+      },
+      "next": ["help", "tasks", "--cursor", "20"]
+    },
+    "read": {
+      "v": 1,
+      "kind": "help-result",
+      "id": "h1",
+      "status": "ok",
+      "result": {
+        "commands": []
+      },
+      "next": ["help", "tasks", "--cursor", "20"]
+    }
+  },
+  {
+    "name": "help-result-error",
+    "envelope": {
+      "v": 1,
+      "kind": "help-result",
+      "id": "h1",
+      "status": "error",
+      "code": "unknown-command",
+      "class": "usage",
+      "message": "unknown command: tsks",
+      "suggest": ["tasks"]
+    },
+    "read": {
+      "v": 1,
+      "kind": "help-result",
+      "id": "h1",
+      "status": "error",
+      "code": "unknown-command",
+      "class": "usage",
+      "message": "unknown command: tsks",
+      "suggest": ["tasks"]
+    }
+  },
+  {
+    "name": "cancel-requested",
+    "envelope": {
+      "v": 1,
+      "kind": "cancel-requested",
+      "id": "r1"
+    },
+    "read": {
+      "v": 1,
+      "kind": "cancel-requested",
+      "id": "r1"
+    }
+  },
+  {
+    "name": "cancelled-before-start",
+    "envelope": {
+      "v": 1,
+      "kind": "cancelled-before-start",
+      "id": "r1"
+    },
+    "read": {
+      "v": 1,
+      "kind": "cancelled-before-start",
+      "id": "r1"
+    }
+  },
+  {
+    "name": "help-result-command-text",
+    "envelope": {
+      "v": 1,
+      "kind": "help-result",
+      "id": "h2",
+      "status": "ok",
+      "text": [
+        "tasks.stop · change",
+        "Stops a task.",
+        "Usage:",
+        "  tasks.stop --id <integer> [options]",
+        "Runs as a preview without --yes; with --yes it makes the change.",
+        "Fields:",
+        "  --id <integer> · required",
+        "  --yes <boolean> · optional"
+      ]
+    },
+    "read": {
+      "v": 1,
+      "kind": "help-result",
+      "id": "h2",
+      "status": "ok",
+      "text": [
+        "tasks.stop · change",
+        "Stops a task.",
+        "Usage:",
+        "  tasks.stop --id <integer> [options]",
+        "Runs as a preview without --yes; with --yes it makes the change.",
+        "Fields:",
+        "  --id <integer> · required",
+        "  --yes <boolean> · optional"
+      ]
+    }
+  },
+  {
+    "name": "help-result-invalid-args-help",
+    "envelope": {
+      "v": 1,
+      "kind": "help-result",
+      "id": "h3",
+      "status": "error",
+      "code": "invalid-args",
+      "class": "usage",
+      "message": "limit: expected integer from 1 to 100",
+      "help": "tasks.list"
+    },
+    "read": {
+      "v": 1,
+      "kind": "help-result",
+      "id": "h3",
+      "status": "error",
+      "code": "invalid-args",
+      "class": "usage",
+      "message": "limit: expected integer from 1 to 100",
+      "help": "tasks.list"
+    }
+  },
+  {
+    "name": "help-result-sensitive-name",
+    "envelope": {
+      "v": 1,
+      "kind": "help-result",
+      "id": "h4",
+      "status": "error",
+      "code": "unknown-command",
+      "class": "usage"
+    },
+    "read": {
+      "v": 1,
+      "kind": "help-result",
+      "id": "h4",
+      "status": "error",
+      "code": "unknown-command",
+      "class": "usage"
+    }
+  }
+]

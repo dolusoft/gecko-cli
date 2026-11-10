@@ -1,3 +1,5 @@
 dist/
 coverage/
 pnpm-lock.yaml
+# Copied from a command-console release as is; never reformatted.
+fixtures/command-console-*/

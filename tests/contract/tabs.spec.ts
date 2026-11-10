@@ -268,13 +268,24 @@ describe('§5.5 tabs', () => {
     })
   })
 
-  it('no received before expiresAt: not-delivered, code 4, and it did not run', async () => {
+  it('no received before expiresAt, read: not-delivered, code 4', async () => {
+    const { dir, tab } = await bound()
+    tab.deaf = true
+    const result = await run(['search', '--ip', '1'], dir)
+    tab.deaf = false
+    expect(result.code).toBe(4)
+    expect(result.result.code).toBe('not-delivered')
+  })
+
+  // The tab may have run it with its `received` lost: the CLI cannot tell
+  // that from a deaf tab, so a change is never "safe to run again" (#10).
+  it('no received before expiresAt, change: unknown-outcome, code 5', async () => {
     const { dir, tab, probe } = await bound()
     tab.deaf = true
     const result = await run(['tasks.stop', '--id', '1', '--yes'], dir)
-    expect(result.code).toBe(4)
-    expect(result.result.code).toBe('not-delivered')
     tab.deaf = false
+    expect(result.code).toBe(5)
+    expect(result.result.code).toBe('unknown-outcome')
     expect(probe.stops).toBe(0)
   })
 

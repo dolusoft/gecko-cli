@@ -22,7 +22,7 @@ CLI Rust'a taşınıyor; plan ve kararlar [docs/rust-migration.md](docs/rust-mig
 
 - `crates/gecko/`: ikili. `args.rs` seçenekler (`args_os`, geçersiz Unicode'da kod 2), `main.rs` yardım, sürüm ve `dev-hub` anahtarı.
 - `crates/gecko-wire/`: zarflar ve `--json` için ASCII JSON yazıcısı. Sekmeden okunan enum'lar `#[serde(other)]` taşır.
-- `crates/gecko-hub-client/`: `Transport` trait'i, anlamsal `Closed` nedenleri, `HubError`. `signalr/` elle yazılmış dar SignalR istemcisi ([docs/signalr-trial.md](docs/signalr-trial.md)); `net.rs` TCP/TLS ve vekil tüneli; `proxy.rs` `*_proxy`/`no_proxy` kuralı.
+- `crates/gecko-hub-client/`: `Transport` trait'i (`status`, `pair`, `send`, `detach`, `next_event`), anlamsal `Closed` nedenleri, `HubError`, `HubEvent`. `dev.rs` geliştirme hub'ının JSON çerçeveleri (yalnız localhost); `select.rs` taşıma seçimi (`GECKO_TRANSPORT`); `signalr/` elle yazılmış dar SignalR istemcisi ([docs/signalr-trial.md](docs/signalr-trial.md)); `net.rs` TCP/TLS ve vekil tüneli; `proxy.rs` `*_proxy`/`no_proxy` kuralı.
 - `crates/gecko-dev-hub/`: `dev-hub` cargo özelliğinin arkasında (K1). Varsayılan derleme özelliği açar; sürüm derlemesi `--no-default-features` ile yapılır ve "this build has no dev hub" der.
 - `tests/signalr-hub/`: SignalR istemci testleri için en küçük ASP.NET Core hub'ı.
 - Ortam değişkenleri ve test kancaları: [docs/test-hooks.md](docs/test-hooks.md). Rust aynı adları okur.

@@ -1,0 +1,15 @@
+[package]
+name = "gecko-hub-client"
+description = "Transport between the gecko CLI and a hub: the development hub and SignalR"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

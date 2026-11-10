@@ -1,0 +1,26 @@
+[package]
+name = "gecko"
+description = "Remote control of the Gecko web terminal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "gecko"
+path = "src/main.rs"
+
+[features]
+# Developer and CI builds carry the development hub; the release workflow builds with
+# --no-default-features, so customers get no HTTP server and no --auto-approve (K1).
+default = ["dev-hub"]
+dev-hub = ["dep:gecko-dev-hub"]
+
+[dependencies]
+gecko-dev-hub = { workspace = true, optional = true }
+gecko-hub-client.workspace = true
+gecko-wire.workspace = true
+
+[lints]
+workspace = true

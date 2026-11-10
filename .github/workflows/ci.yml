@@ -61,6 +61,37 @@ jobs:
       - run: pnpm test
       - run: pnpm measure:startup
 
+  # Rust workspace (docs/rust-migration.md §7). Both feature sets are checked: the
+  # default one (with the dev hub) and the release one (--no-default-features, K1).
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # The toolchain is pinned in rust-toolchain.toml; rustup installs it on first use.
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo test --workspace --locked --no-default-features
+      # gecko-dev: the developer build with the dev hub, for tests and contributors.
+      # It is never attached to a Release.
+      - run: cargo build --release --locked -p gecko
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gecko-dev-${{ runner.os }}
+          path: target/release/gecko${{ runner.os == 'Windows' && '.exe' || '' }}
+          if-no-files-found: error
+          retention-days: 14
+
   # SignalR trial (docs/signalr-trial.md): the narrow Rust client against the smallest
   # ASP.NET Core hub. The hub stays in CI because the real backend is not ours.
   signalr:
@@ -112,7 +143,7 @@ jobs:
         run: cat hub.log
 
   verify:
-    needs: [checks, test, signalr]
+    needs: [checks, test, rust, signalr]
     # A skipped required check counts as passed; this one reports failures.
     if: ${{ always() }}
     runs-on: ubuntu-latest
@@ -122,7 +153,7 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "checks, test, signalr: $RESULTS"
+          echo "checks, test, rust, signalr: $RESULTS"
           for result in $RESULTS; do
             if [ "$result" != "success" ]; then
               exit 1

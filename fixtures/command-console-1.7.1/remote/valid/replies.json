@@ -418,5 +418,65 @@
       "code": "unknown-command",
       "class": "usage"
     }
+  },
+  {
+    "name": "finished-unknown-command-name-only",
+    "envelope": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "error",
+        "code": "unknown-command",
+        "class": "usage",
+        "message": "unknown command: tasks.lst"
+      },
+      "chunks": 0,
+      "bytes": 0,
+      "suggest": ["tasks.list"]
+    },
+    "read": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "error",
+        "code": "unknown-command",
+        "class": "usage",
+        "message": "unknown command: tasks.lst"
+      },
+      "chunks": 0,
+      "bytes": 0,
+      "suggest": ["tasks.list"]
+    }
+  },
+  {
+    "name": "finished-not-allowed-user-rejected",
+    "envelope": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "error",
+        "code": "not-allowed",
+        "class": "denied",
+        "message": "The user rejected the change in the browser; nothing changed."
+      },
+      "chunks": 0,
+      "bytes": 0
+    },
+    "read": {
+      "v": 1,
+      "kind": "finished",
+      "id": "r1",
+      "outcome": {
+        "status": "error",
+        "code": "not-allowed",
+        "class": "denied",
+        "message": "The user rejected the change in the browser; nothing changed."
+      },
+      "chunks": 0,
+      "bytes": 0
+    }
   }
 ]

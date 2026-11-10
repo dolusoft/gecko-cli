@@ -8,7 +8,7 @@
 
 use gecko_wire::reply::{Chunk, Finished, Reply, Status};
 
-use crate::output::{Outcome, ViewInfo};
+use gecko_kernel::{Outcome, ViewInfo};
 
 /// Something that happened while the request was out.
 #[derive(Debug, Clone, PartialEq)]
@@ -175,7 +175,7 @@ impl Run {
                 "revoked",
                 format!(
                     "the binding ended; work that started may go on. {}",
-                    crate::output::BIND_AGAIN
+                    gecko_kernel::BIND_AGAIN
                 ),
                 6,
             )),

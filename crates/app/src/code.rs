@@ -3,10 +3,9 @@
 //! (§3.3). The address comes from text a user was handed, so only `https` and loopback
 //! `http` pass.
 
+use gecko_kernel::Failure;
 use serde::Deserialize;
 use url::Url;
-
-use crate::output::Failure;
 
 const PREFIX: &str = "gk1_";
 

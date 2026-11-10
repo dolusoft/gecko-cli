@@ -6,7 +6,9 @@ resolver = "3"
 # fails on a crate under `crates/` that is not a member.
 members = [
     "crates/app",
+    "crates/kernel",
     "crates/protocol/wire",
+    "crates/protocol/hub",
     "crates/adapters/hub-client",
     "crates/dev-hub",
     "crates/testkit",
@@ -23,6 +25,8 @@ repository = "https://github.com/dolusoft/gecko-cli"
 [workspace.dependencies]
 gecko-dev-hub = { path = "crates/dev-hub" }
 gecko-hub-client = { path = "crates/adapters/hub-client" }
+gecko-hub-protocol = { path = "crates/protocol/hub" }
+gecko-kernel = { path = "crates/kernel" }
 gecko-wire = { path = "crates/protocol/wire" }
 # Test support; a dev-dependency only, never in a release build.
 gecko-testkit = { path = "crates/testkit" }

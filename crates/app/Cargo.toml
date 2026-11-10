@@ -21,6 +21,8 @@ dev-hub = ["dep:gecko-dev-hub"]
 [dependencies]
 gecko-dev-hub = { workspace = true, optional = true }
 gecko-hub-client.workspace = true
+gecko-hub-protocol.workspace = true
+gecko-kernel.workspace = true
 gecko-wire.workspace = true
 reqwest.workspace = true
 serde.workspace = true

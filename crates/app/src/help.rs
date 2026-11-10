@@ -3,17 +3,18 @@
 //! command is not open to the CLI; the CLI sends a `help-request` with the raw
 //! arguments and prints the tab's `help-result` (command-console 1.7.0).
 
-use gecko_hub_client::{Closed, HubEvent, Transport};
+use gecko_hub_client::Transport;
+use gecko_hub_protocol::{Closed, HubEvent};
+use gecko_kernel::{BIND_AGAIN, Failure, Outcome};
 use gecko_wire::reply::{HelpResult, Read, Reply, Status, read_value};
 use gecko_wire::request;
 use serde_json::Value;
 use tokio::time::sleep_until;
 
-use crate::auth::BIND_AGAIN;
 use crate::config::Config;
 use crate::interrupt::Interrupts;
 use crate::line::{Sent, capabilities_of, live_binding, new_id, send};
-use crate::output::{Failure, Io, Outcome};
+use crate::output::Io;
 use crate::session::{self, Session, lost_failure};
 
 /// The last line under a list of commands.

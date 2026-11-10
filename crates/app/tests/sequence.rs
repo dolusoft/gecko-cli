@@ -30,7 +30,7 @@ use serde_json::Value;
 /// new one fails here instead of being passed over.
 const TAB_FIELDS: [&str; 5] = ["level", "command", "summary", "approve", "expire"];
 
-fn feed(example: &Value) -> output::Outcome {
+fn feed(example: &Value) -> gecko_kernel::Outcome {
     session::NOW.with(|now| now.set(0));
     if let Some(tab) = example.get("tab").and_then(Value::as_object) {
         for key in tab.keys() {

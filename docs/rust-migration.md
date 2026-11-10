@@ -290,7 +290,7 @@ Kullanım dar (çağrı başına tek kısa bağlantı, JSON, WebSocket, akış y
 
 **Adım 4a — SignalR denemesi** (§7.4). `Transport` trait'inin biçimini belirler; Rust işinden önce. **Yapıldı** (2026-11-10): elle yazılmış dar istemci, [signalr-trial.md](signalr-trial.md).
 
-**Adım 4b — Rust CLI**, mevcut Node hub'ına karşı: sözleşme testleri, argüman matrisi (DC-3), ölçümler.
+**Adım 4b — Rust CLI**, mevcut Node hub'ına karşı: sözleşme testleri, argüman matrisi (DC-3), ölçümler. Workspace iskeleti **yapıldı** (2026-11-10): dört crate, `args_os` ayrıştırması, `--help`/`--version`, `dev-hub` özelliği, ASCII JSON yazıcısı, Windows/Ubuntu/macOS CI'ı ve `gecko-dev` artefaktı. Ölçüm: `--help` p50 3,5 ms, sürüm ikilisi 115 KB (Windows 11, 20 örnek).
 
 **Adım 4c — çapraz matris** (§12 kararı Rust hub ise): Rust hub ↔ TypeScript CLI, Rust hub ↔ frontendx `devHubTransport`, sonra Rust ↔ Rust. TypeScript silinince bu kanıt bir daha üretilemez (F34).
 

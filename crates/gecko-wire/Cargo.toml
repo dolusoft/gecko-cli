@@ -1,0 +1,15 @@
+[package]
+name = "gecko-wire"
+description = "Envelopes between the gecko CLI and the Gecko tab, and the ASCII JSON writer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

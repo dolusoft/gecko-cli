@@ -16,6 +16,35 @@ Bir şeyi değiştirmeden önce oku. Kısa tutuldu; ayrıntı bağlantılı dosy
 - `tests/contract/`: hub ve CLI gerçek süreç, sahte sekme command-console-core'un `attachRemote`'u. Spec tablolarının her satırı bir test.
 - `tests/unit/`: saf işlevler.
 
+## Rust (geçiş sürüyor)
+
+CLI Rust'a taşınıyor; plan ve kararlar [docs/rust-migration.md](docs/rust-migration.md). Adım 5'e kadar ürün Node kodudur; Rust ikilisi henüz komut çalıştırmaz.
+
+- `crates/gecko/`: ikili. `args.rs` seçenekler (`args_os`, geçersiz Unicode'da kod 2), `main.rs` yardım, sürüm ve `dev-hub` anahtarı.
+- `crates/gecko-wire/`: zarflar ve `--json` için ASCII JSON yazıcısı. Sekmeden okunan enum'lar `#[serde(other)]` taşır.
+- `crates/gecko-hub-client/`: `Transport` trait'i, anlamsal `Closed` nedenleri, `HubError`. SignalR istemcisi adım 4b'de `spikes/signalr-manual/`'dan buraya gelir ([docs/signalr-trial.md](docs/signalr-trial.md)).
+- `crates/gecko-dev-hub/`: `dev-hub` cargo özelliğinin arkasında (K1). Varsayılan derleme özelliği açar; sürüm derlemesi `--no-default-features` ile yapılır ve "this build has no dev hub" der.
+- `spikes/`: deneme crate'leri, kendi `[workspace]` tablolarıyla; workspace'e girmez.
+- `tests/signalr-hub/`: SignalR istemci testleri için en küçük ASP.NET Core hub'ı.
+- Ortam değişkenleri ve test kancaları: [docs/test-hooks.md](docs/test-hooks.md). Rust aynı adları okur.
+
+Rust kuralları:
+
+- Araç zinciri `rust-toolchain.toml`'da sabit (1.95). `unsafe` yasak. `clippy` uyarısı hata sayılır.
+- Kullanıcıya giden bütün metinler İngilizce (K2).
+- TLS `rustls` + `ring` + `rustls-platform-verifier`; `native-tls` ve `aws-lc-rs` girmez. Yeni bağımlılık PR'da gerekçelendirilir.
+- Token yalnız `Authorization` başlığında; SignalR'da da.
+
+Rust push öncesi:
+
+```
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+cargo test --workspace
+cargo test --workspace --no-default-features
+```
+
 ## Kurallar
 
 - Çalışma zamanı bağımlılığı yalnız `@dolusoft/command-protocol` ve `ws` (yalnız hub, tembel yüklenir). Küçük paketi kendimiz yazarız.
@@ -32,4 +61,4 @@ Bir şeyi değiştirmeden önce oku. Kısa tutuldu; ayrıntı bağlantılı dosy
 
 ## Push etmeden önce
 
-`pnpm lint && pnpm typecheck && pnpm build && pnpm test`. İş ortasında yalnız değişen testler; PR öncesi bir kez tam paket.
+`pnpm lint && pnpm typecheck && pnpm build && pnpm test`; Rust'a dokunulduysa yukarıdaki Rust komutları da. İş ortasında yalnız değişen testler; PR öncesi bir kez tam paket.

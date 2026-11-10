@@ -1,0 +1,38 @@
+# Rust workspace of the gecko CLI (docs/rust-migration.md §7). The Node code in src/
+# stays until step 5; the two do not share files.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# Trial crates carry their own [workspace] table and lock file.
+exclude = ["spikes"]
+
+[workspace.package]
+version = "0.3.0-dev.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+repository = "https://github.com/dolusoft/gecko-cli"
+
+[workspace.dependencies]
+gecko-dev-hub = { path = "crates/gecko-dev-hub" }
+gecko-hub-client = { path = "crates/gecko-hub-client" }
+gecko-wire = { path = "crates/gecko-wire" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
+todo = "warn"
+unwrap_used = "warn"
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
+strip = true

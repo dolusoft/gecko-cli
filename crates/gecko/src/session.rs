@@ -1,5 +1,5 @@
-//! One `gecko` call's connection to the hub (Node: src/cli/session.ts): the stored
-//! token, the transport for the environment and the hub's `status`. Every path that
+//! One `gecko` call's connection to the hub: the stored token, the transport for the
+//! environment and the hub's `status`. Every path that
 //! fails after connecting closes the connection before it returns.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -110,7 +110,7 @@ pub async fn open(env: &str, config: &Config) -> Result<Session, Failure> {
         return Err(Failure::new(
             "failed",
             format!(
-                "the Rust build cannot reach {host} yet (the SignalR hub follows in step 4b); use the Node build"
+                "cannot reach {host}: the hosted hub is not supported yet; use the development hub"
             ),
         ));
     }

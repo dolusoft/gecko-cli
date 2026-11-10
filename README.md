@@ -179,10 +179,10 @@ from a source build as above.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-
-pnpm install && pnpm build
-pnpm lint && pnpm typecheck && pnpm test
 ```
+
+Markdown, YAML and JSON files are formatted with Prettier:
+`pnpm install && pnpm exec prettier --check .`
 
 Environment variables and test hooks: [docs/test-hooks.md](docs/test-hooks.md). Layout
 and rules: [AGENTS.md](AGENTS.md).

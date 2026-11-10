@@ -44,7 +44,7 @@ pub struct Options {
 
 impl Options {
     /// Defaults: skip negotiation, SignalR's keep-alive and timeouts, a 10 s answer limit
-    /// per method (as the Node CLI's RPC), and the proxy rule from the environment.
+    /// per method (as the development transport), and the proxy rule from the environment.
     pub fn new(url: impl Into<String>, token: impl Into<String>) -> Self {
         Self {
             url: url.into(),

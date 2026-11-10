@@ -1,5 +1,4 @@
-# Rust workspace of the gecko CLI (spec §7). The Node code in src/
-# stays until step 5; the two do not share files.
+# Rust workspace of the gecko CLI (spec §7).
 [workspace]
 resolver = "3"
 members = ["crates/*"]

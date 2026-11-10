@@ -1,9 +1,8 @@
 //! `gecko`: the remote control of the Gecko web terminal. A line typed here runs in the
 //! bound browser tab, and the result comes back.
 //!
-//! Step 4b in progress: options, help, version, the dev-hub switch, login, logout,
-//! attach, detach, status, `gecko help` and the line path (command-console 1.7.0).
-//! Until step 5 the Node build is the product.
+//! Options, help, version, the dev-hub switch, login, logout, attach, detach, status,
+//! `gecko help` and the line path (command-console 1.7).
 
 mod args;
 mod auth;

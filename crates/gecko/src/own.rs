@@ -35,7 +35,7 @@ pub fn usage(name: &str) -> Option<&'static str> {
     })
 }
 
-/// `--name value`, `--name=value`, or `--name` alone (true); as the Node build reads it.
+/// `--name value`, `--name=value`, or `--name` alone (true).
 #[derive(Debug, PartialEq, Eq)]
 pub enum Flag {
     Absent,

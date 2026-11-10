@@ -1,10 +1,9 @@
 //! The hub's records and rules: device login (RFC 8628), CLI tokens, the binding of a
 //! CLI grant to one tab page, routing with the hub's stamp, and the browser broadcast
-//! that CLI connections never join. The same behaviour as the Node hub (src/hub/hub.ts);
-//! the server (`server.rs`) only moves bytes.
+//! that CLI connections never join. The server (`server.rs`) only moves bytes.
 //!
-//! Times are milliseconds since the epoch as `f64`, as `Date.now()` is in the Node hub:
-//! the windows come from JSON and may be fractional.
+//! Times are milliseconds since the epoch as `f64`: the windows come from JSON and may
+//! be fractional.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};

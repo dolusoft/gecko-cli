@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The TypeScript build and its tests are removed; the repository is Rust only.
+
 ## 0.3.0
 
 The first release, and the first Rust build. The hosted Gecko hub is not available yet:

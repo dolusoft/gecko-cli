@@ -2,9 +2,6 @@
 //! specification in one process, with fake users. It listens on 127.0.0.1 only. It is
 //! compiled into the binary only with the `dev-hub` feature: developer and CI builds
 //! have it, release builds do not.
-//!
-//! The behaviour is the Node hub's (src/hub/hub.ts), so the Node contract tests run
-//! against either (`GECKO_TEST_HUB_BIN`).
 
 mod hub;
 mod page;
@@ -243,7 +240,7 @@ mod tests {
         assert_eq!(options.rate_burst, None);
         assert_eq!(options.users[0].terminal, Some(false));
         assert_eq!(options.timings.suspend_ms, 300.0);
-        // --interval wins over the JSON, as in the Node hub.
+        // --interval wins over the JSON.
         assert_eq!(options.timings.interval_ms, 100.0);
     }
 

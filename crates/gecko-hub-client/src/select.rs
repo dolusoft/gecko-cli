@@ -1,4 +1,4 @@
-//! Which transport an environment uses (Node: src/transport/select.ts).
+//! Which transport an environment uses.
 //!
 //! The development hub for a localhost address, the real hub (SignalR) otherwise.
 //! `GECKO_TRANSPORT=dev` picks the development transport for any address, but that

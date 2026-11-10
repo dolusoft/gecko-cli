@@ -226,7 +226,6 @@ impl Auth {
 
     /// The stored token of the environment, refreshed when it expires within 30 s (or
     /// always, with `force`).
-    #[allow(dead_code, reason = "the binding commands use it in step 4b-4")]
     pub async fn current_token(
         &self,
         config: &Config,

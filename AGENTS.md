@@ -18,11 +18,11 @@ Bir şeyi değiştirmeden önce oku. Kısa tutuldu; ayrıntı bağlantılı dosy
 
 ## Rust (geçiş sürüyor)
 
-CLI Rust'a taşınıyor; plan ve kararlar [docs/rust-migration.md](docs/rust-migration.md). Adım 5'e kadar ürün Node kodudur; Rust ikilisi bugün `login` ve `logout` yapar, sekmeye satır göndermez.
+CLI Rust'a taşınıyor; plan ve kararlar [docs/rust-migration.md](docs/rust-migration.md). Adım 5'e kadar ürün Node kodudur; Rust ikilisi bugün `login`, `logout`, `attach`, `detach` ve `status` yapar (yalnız geliştirme hub'ına karşı), sekmeye satır göndermez.
 
-- `crates/gecko/`: ikili. `args.rs` seçenekler (`args_os`, geçersiz Unicode'da kod 2), `main.rs` yardım, sürüm, `dev-hub` anahtarı ve komut dağıtımı; `own.rs` kendi komutları; `auth.rs` cihaz girişi, yenileme, iptal; `config.rs` dosyalar (Node ile aynı ad ve JSON: iki ikili birbirinin girişini okur); `output.rs` sonuç ve çıkış kodları; `interrupt.rs` Ctrl+C; `browser.rs`.
+- `crates/gecko/`: ikili. `args.rs` seçenekler (`args_os`, geçersiz Unicode'da kod 2), `main.rs` yardım, sürüm, `dev-hub` anahtarı ve komut dağıtımı; `own.rs` `login`/`logout`; `binding.rs` `attach`/`detach`/`status`; `session.rs` hub oturumu, kapanış nedeninin çıkış koduna eşlenmesi, eşleştirme; `auth.rs` cihaz girişi, yenileme, iptal; `config.rs` dosyalar (Node ile aynı ad ve JSON: iki ikili birbirinin girişini okur); `output.rs` sonuç ve çıkış kodları; `interrupt.rs` Ctrl+C; `browser.rs`.
 - `crates/gecko-wire/`: zarflar ve `--json` için ASCII JSON yazıcısı. Sekmeden okunan enum'lar `#[serde(other)]` taşır.
-- `crates/gecko-hub-client/`: `Transport` trait'i (`status`, `pair`, `send`, `detach`, `next_event`), anlamsal `Closed` nedenleri, `HubError`, `HubEvent`. `dev.rs` geliştirme hub'ının JSON çerçeveleri (yalnız localhost); `select.rs` taşıma seçimi (`GECKO_TRANSPORT`); `signalr/` elle yazılmış dar SignalR istemcisi ([docs/signalr-trial.md](docs/signalr-trial.md)); `net.rs` TCP/TLS ve vekil tüneli; `proxy.rs` `*_proxy`/`no_proxy` kuralı.
+- `crates/gecko-hub-client/`: `Transport` trait'i (`status`, `pair`, `send`, `detach`, `next_event`), anlamsal `Closed` nedenleri, `HubError`, `HubEvent`. `hub.rs` hub'ın kendi cevapları (`HubStatus`, `Binding`, `PairCode`; bilinmeyen durum `Unknown`). `dev.rs` geliştirme hub'ının JSON çerçeveleri (yalnız localhost); `select.rs` taşıma seçimi (`GECKO_TRANSPORT`); `signalr/` elle yazılmış dar SignalR istemcisi ([docs/signalr-trial.md](docs/signalr-trial.md)); `net.rs` TCP/TLS ve vekil tüneli; `proxy.rs` `*_proxy`/`no_proxy` kuralı.
 - `crates/gecko-dev-hub/`: `dev-hub` cargo özelliğinin arkasında (K1). Varsayılan derleme özelliği açar; sürüm derlemesi `--no-default-features` ile yapılır ve "this build has no dev hub" der.
 - `tests/signalr-hub/`: SignalR istemci testleri için en küçük ASP.NET Core hub'ı.
 - Ortam değişkenleri ve test kancaları: [docs/test-hooks.md](docs/test-hooks.md). Rust aynı adları okur.

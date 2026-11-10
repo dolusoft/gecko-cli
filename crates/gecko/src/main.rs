@@ -1,17 +1,19 @@
 //! `gecko`: the remote control of the Gecko web terminal. A line typed here runs in the
 //! bound browser tab, and the result comes back (docs/rust-migration.md).
 //!
-//! Step 4b in progress: options, help, version, the dev-hub switch, login and logout.
-//! The binding commands and the line path follow; until step 5 the Node build is the
+//! Step 4b in progress: options, help, version, the dev-hub switch, login, logout,
+//! attach, detach and status. Help and the line path follow; until step 5 the Node build is the
 //! product.
 
 mod args;
 mod auth;
+mod binding;
 mod browser;
 mod config;
 mod interrupt;
 mod output;
 mod own;
+mod session;
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -88,7 +90,7 @@ fn command(argv: &[String], options: &Options, out: &mut dyn Write, err: &mut dy
         let _ = out.write_all(own::usage(name).unwrap_or_default().as_bytes());
         return 0;
     }
-    if !matches!(name, "login" | "logout") {
+    if !matches!(name, "login" | "logout" | "attach" | "detach" | "status") {
         let _ = writeln!(
             err,
             "gecko {VERSION}: `{name}` is not available in the Rust build yet (step 4b); use the Node build."
@@ -113,7 +115,10 @@ fn command(argv: &[String], options: &Options, out: &mut dyn Write, err: &mut dy
         let mut interrupts = Interrupts::listen();
         match name {
             "login" => own::login(rest, options, &config, &mut io, &mut interrupts).await,
-            _ => own::logout(rest, options, &config).await,
+            "logout" => own::logout(rest, options, &config).await,
+            "attach" => binding::attach(rest, options, &config, &mut io, &mut interrupts).await,
+            "detach" => binding::detach(rest, options, &config).await,
+            _ => binding::status(rest, options, &config).await,
         }
     });
     // A blocking stdin read (the test interrupt hook) must not hold the process open.

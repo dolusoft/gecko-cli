@@ -657,6 +657,9 @@ impl Hub {
         let generation = binding.suspend_generation;
         let id = binding.binding_id.clone();
         let me = self.me.clone();
+        self.log(&format!(
+            "binding {id} suspended; ends as {reason} in {wait_ms} ms"
+        ));
         tokio::spawn(async move {
             tokio::time::sleep(millis(wait_ms)).await;
             if let Some(hub) = me.upgrade() {
@@ -687,7 +690,14 @@ impl Hub {
         let id = binding.binding_id.clone();
         self.announce(index);
         self.log(&format!("binding {id} active again"));
-        self.release_held(&id);
+        // After the answer of the call that brought the page back (`hello`), which goes
+        // out under this lock: the page adopts the binding before its held sends.
+        let me = self.me.clone();
+        tokio::spawn(async move {
+            if let Some(hub) = me.upgrade() {
+                lock(&hub).release_held(&id);
+            }
+        });
     }
 
     fn issue_tokens(&mut self, grant_id: &str) -> (String, f64) {
@@ -1255,6 +1265,19 @@ impl Hub {
         );
         stamped.insert("stampedAt".into(), num(stamped_at));
         stamped.insert("expiresAt".into(), num(expires_at));
+        // The hub reads `kind` and the request id only (§2); never the command line.
+        let field = |name: &str| {
+            stamped
+                .get(name)
+                .and_then(Value::as_str)
+                .unwrap_or("?")
+                .to_owned()
+        };
+        self.log(&format!(
+            "{} {} to browser connection {browser}",
+            field("kind"),
+            field("id")
+        ));
         self.send(browser, "cli-message", Some(Value::Object(stamped)));
         json!({ "stampedAt": num(stamped_at), "expiresAt": num(expires_at) })
     }
@@ -1274,6 +1297,12 @@ impl Hub {
             .into_iter()
             .partition(|h| h.binding_id == binding_id);
         self.held = waiting;
+        if !ready.is_empty() {
+            self.log(&format!(
+                "binding {binding_id}: {} held send(s) go out",
+                ready.len()
+            ));
+        }
         for held in ready {
             let stamp = self.deliver(browser, &grant_id, binding_id, held.envelope);
             self.answer(held.cli, &held.invoke_id, Ok(stamp));
@@ -1296,6 +1325,10 @@ impl Hub {
             return;
         };
         let held = self.held.remove(position);
+        self.log(&format!(
+            "binding {}: a held send ends tab-unreachable",
+            held.binding_id
+        ));
         self.answer(held.cli, &held.invoke_id, Err(unreachable_tab()));
     }
 

@@ -684,6 +684,12 @@ async fn a_held_send_goes_out_when_the_page_returns() {
         )
         .await
         .unwrap();
+    // The page has the answer of `hello`, and so its binding, before the held send:
+    // nothing arrived ahead of that answer.
+    assert!(
+        again.events.iter().all(|(name, _)| name != "cli-message"),
+        "a held send went out before the answer of hello"
+    );
     let stamp = cli.result(send).await.unwrap();
     // Stamped when it went out, not when it was sent.
     assert!(stamp["stampedAt"].as_f64().unwrap() >= sent_at + 250.0);

@@ -16,9 +16,12 @@ use serde_json::{Map, Value, json};
 const VERSIONS: [&str; 2] = ["1.7.2", "1.8.2"];
 
 fn load(version: &str, file: &str) -> Value {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../fixtures/command-console-{version}/remote"))
-        .join(file);
+    let path = PathBuf::from(env!(
+        "GECKO_CLI_FIXTURES_DIR",
+        "set in .cargo/config.toml; run cargo inside the repository"
+    ))
+    .join(format!("command-console-{version}/remote"))
+    .join(file);
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
 }
 

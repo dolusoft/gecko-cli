@@ -2,14 +2,16 @@
 //! bound browser tab, and the result comes back (docs/rust-migration.md).
 //!
 //! Step 4b in progress: options, help, version, the dev-hub switch, login, logout,
-//! attach, detach, status and the line path (command-console 1.7.0). `gecko help`
-//! follows; until step 5 the Node build is the product.
+//! attach, detach, status, `gecko help` and the line path (command-console 1.7.0).
+//! Until step 5 the Node build is the product.
 
 mod args;
 mod auth;
 mod binding;
 mod browser;
 mod config;
+mod format;
+mod help;
 mod interrupt;
 mod line;
 mod output;
@@ -47,6 +49,8 @@ Own commands:
 Options (before the command name):
   --json            one JSON object; non-ASCII characters as \uXXXX
   --env <env>       environment (default: the last login)
+  --out <file>      writes the result to the file as UTF-8
+  --view <id>       runs the command in this Data View
   -h, --help        this text
   -v, --version     the version
 
@@ -97,11 +101,14 @@ fn command(argv: &[String], options: &Options, out: &mut dyn Write, err: &mut dy
         return 0;
     }
     if name == "help" {
-        let _ = writeln!(
+        return execute(
+            options,
+            out,
             err,
-            "gecko {VERSION}: `help` is not available in the Rust build yet (step 4b); use the Node build."
+            Job::Help {
+                args: rest.to_vec(),
+            },
         );
-        return 2;
     }
     execute(options, out, err, Job::Own { name, rest })
 }
@@ -116,6 +123,13 @@ fn tab_line(
 ) -> u8 {
     let auto_pair = line::may_auto_pair(options.json, line.is_some());
     let input = line::input_of(argv, line);
+    // The tab's `help` command is not open to the CLI: a `help …` line asks as
+    // `gecko help …` does.
+    if let Ok(gecko_wire::request::Input::Line(text)) = &input
+        && let Some(args) = help::line_args(text)
+    {
+        return execute(options, out, err, Job::Help { args });
+    }
     execute(options, out, err, Job::Line { input, auto_pair })
 }
 
@@ -129,16 +143,34 @@ enum Job<'a> {
         input: Result<gecko_wire::request::Input, Failure>,
         auto_pair: bool,
     },
+    Help {
+        args: Vec<String>,
+    },
+}
+
+/// Runs one job and prints its result: to stdout, or with `--out` to the file.
+fn execute(options: &Options, out: &mut dyn Write, err: &mut dyn Write, job: Job<'_>) -> u8 {
+    let Some(path) = &options.out else {
+        return execute_to(options, out, err, job, false);
+    };
+    let mut buffer = Vec::new();
+    let code = execute_to(options, &mut buffer, err, job, true);
+    if let Err(error) = std::fs::write(path, &buffer) {
+        let _ = writeln!(err, "error (failed): cannot write {path}: {error}");
+        return if code == 0 { 1 } else { code };
+    }
+    code
 }
 
 /// Runs one job on a single-thread runtime and prints its result.
-fn execute(options: &Options, out: &mut dyn Write, err: &mut dyn Write, job: Job<'_>) -> u8 {
-    let mut io = Io {
-        out,
-        err,
-        color: Io::stderr_color(),
-        json: options.json,
-    };
+fn execute_to(
+    options: &Options,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+    job: Job<'_>,
+    to_file: bool,
+) -> u8 {
+    let mut io = Io::new(out, err, options.json, to_file);
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -147,6 +179,7 @@ fn execute(options: &Options, out: &mut dyn Write, err: &mut dyn Write, job: Job
         Err(error) => return io.fail(&Failure::new("failed", format!("cannot start: {error}"))),
     };
     let config = Config::from_env();
+    let is_help = matches!(job, Job::Help { .. });
     let result = runtime.block_on(async {
         let mut interrupts = Interrupts::listen();
         let (io, config, interrupts) = (&mut io, &config, &mut interrupts);
@@ -169,12 +202,20 @@ fn execute(options: &Options, out: &mut dyn Write, err: &mut dyn Write, job: Job
                     Err(failure) => Err(failure),
                 }
             }
+            Job::Help { args } => help::run(&args, options, config, io, interrupts).await,
         }
     });
     // A blocking stdin read (the test interrupt hook) must not hold the process open.
     runtime.shutdown_background();
     match result {
         Ok(outcome) => io.emit(&outcome),
+        // Without a login there is no tab to ask: the CLI's own usage (an agent
+        // reading JSON gets the identity error, UX U9).
+        Err(failure) if is_help && failure.code == "not-logged-in" && !options.json => {
+            let _ = io.out.write_all(USAGE.as_bytes());
+            io.info("For the Gecko commands, first: gecko login --env <env>");
+            0
+        }
         Err(failure) => io.fail(&failure),
     }
 }

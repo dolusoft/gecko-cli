@@ -13,6 +13,8 @@ pub struct Options {
     pub env: Option<String>,
     /// `--view <id>`: the view the command runs in.
     pub view: Option<String>,
+    /// `--out <file>`: the result goes to this file as UTF-8 instead of stdout.
+    pub out: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -122,6 +124,7 @@ where
             "--json" if inline.is_none() => options.json = true,
             "--env" => options.env = Some(value("--env")?),
             "--view" => options.view = Some(value("--view")?),
+            "--out" => options.out = Some(value("--out")?),
             "--line" => line = Some(value("--line")?),
             "--" => break,
             _ if word.starts_with('-') && word.len() > 1 => {
@@ -208,8 +211,10 @@ mod tests {
 
     #[test]
     fn line_and_view() {
-        let (options, action) = run(&["--view=v-1", "--line", "tasks.list --q a"]).unwrap();
+        let (options, action) =
+            run(&["--view=v-1", "--out", "r.txt", "--line", "tasks.list --q a"]).unwrap();
         assert_eq!(options.view.as_deref(), Some("v-1"));
+        assert_eq!(options.out.as_deref(), Some("r.txt"));
         assert_eq!(action, Action::Line("tasks.list --q a".into()));
         assert_eq!(run(&["--line", "-"]).unwrap().1, Action::Line("-".into()));
         assert_eq!(

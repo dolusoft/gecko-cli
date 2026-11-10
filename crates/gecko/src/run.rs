@@ -34,6 +34,9 @@ pub enum Step {
     Wait,
     /// A line for stderr.
     Info(String),
+    /// The tab waits for the user's approval; the line for stderr when no wait
+    /// indicator counts it down.
+    Approval(String),
     /// Send `cancel` and start the cancel wait.
     SendCancel,
     End(Box<Outcome>),
@@ -52,6 +55,8 @@ pub struct Run {
     received: Option<gecko_wire::reply::Received>,
     /// Set by `awaiting-approval`: the tab is about to change data.
     approving: bool,
+    /// When the approval runs out, on the tab's clock.
+    approval_expires_at: Option<f64>,
     chunks: Vec<Chunk>,
     interrupted: bool,
     cancel_answer: Option<CancelAnswer>,
@@ -74,11 +79,22 @@ impl Run {
             danger_change,
             received: None,
             approving: false,
+            approval_expires_at: None,
             chunks: Vec::new(),
             interrupted: false,
             cancel_answer: None,
             ended: false,
         }
+    }
+
+    /// Whether the tab accepted the request (`received`).
+    pub fn received(&self) -> bool {
+        self.received.is_some()
+    }
+
+    /// When the approval the tab waits for runs out (ms since the epoch, its clock).
+    pub fn approval_expires_at(&self) -> Option<f64> {
+        self.approval_expires_at
     }
 
     /// Whether the request may have changed data, as far as the CLI can tell.
@@ -199,8 +215,9 @@ impl Run {
             }
             Reply::AwaitingApproval { expires_at, .. } => {
                 self.approving = true;
+                self.approval_expires_at = Some(expires_at);
                 let now = crate::session::now_ms() as f64;
-                Step::Info(format!(
+                Step::Approval(format!(
                     "Waiting for approval ({}): approve it in the Gecko tab in the browser.",
                     approx_left(expires_at - now)
                 ))

@@ -12,6 +12,7 @@ pub mod net;
 pub mod proxy;
 pub mod select;
 pub mod signalr;
+pub mod tcp;
 
 use std::future::Future;
 

@@ -37,6 +37,8 @@ struct Plan {
     help: Option<Value>,
     /// How many first sends the hub refuses as `rate-limited`.
     rate_limited: usize,
+    /// The tab's wait between its first reply and the rest.
+    delay_ms: u64,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -156,7 +158,10 @@ async fn serve(tcp: TcpStream, plan: Plan, log: Arc<Mutex<Seen>>, host: String) 
                     Some("help-request") => plan.help.clone().into_iter().collect(),
                     _ => Vec::new(),
                 };
-                for mut reply in replies {
+                for (n, mut reply) in replies.into_iter().enumerate() {
+                    if n == 1 && plan.delay_ms > 0 {
+                        tokio::time::sleep(std::time::Duration::from_millis(plan.delay_ms)).await;
+                    }
                     reply["v"] = json!(1);
                     reply["id"] = request_id.clone();
                     say(
@@ -260,7 +265,7 @@ fn a_read_command_runs_and_prints() {
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
     assert_eq!(
         text(&output.stdout),
-        "1 row\n{\n  \"a\": 1\n}\nMore: gecko tasks.list --cursor 40\n"
+        "1 row\na: 1\nMore: gecko tasks.list --cursor 40\n"
     );
     assert_eq!(kinds(&seen), ["cli-request"]);
     assert_eq!(
@@ -426,4 +431,145 @@ fn the_name_is_checked_before_connecting() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(json_of(&output)["code"], "usage");
     assert!(seen.methods.is_empty());
+}
+
+fn rows_reply() -> Vec<Value> {
+    let data = r#"[{"id":7,"title":"Görev","note":null}]"#;
+    vec![
+        json!({ "kind": "received", "hidden": false, "dataAgeMs": null, "change": false, "viewRelevant": false }),
+        json!({ "kind": "chunk", "index": 0, "total": 1, "bytes": data.len(), "data": data }),
+        json!({ "kind": "finished", "outcome": { "status": "ok" }, "chunks": 1, "bytes": data.len() }),
+    ]
+}
+
+#[test]
+fn rows_print_as_a_table() {
+    let plan = Plan {
+        capabilities: standard_caps(),
+        replies: rows_reply(),
+        ..Plan::default()
+    };
+    let (output, _) = run("table", plan, &["tasks.list"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        text(&output.stdout),
+        "id  title\n--  -----\n7   Görev\n(empty columns hidden: note)\n"
+    );
+}
+
+#[test]
+fn out_writes_the_result_to_a_file() {
+    let plan = Plan {
+        capabilities: standard_caps(),
+        replies: rows_reply(),
+        ..Plan::default()
+    };
+    let (host, _) = hub(plan);
+    let dir = signed_in("out", &host);
+    let file = dir.join("result.json");
+    let output = gecko(
+        &dir,
+        &["--json", "--out", file.to_str().unwrap(), "tasks.list"],
+    )
+    .output()
+    .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(output.stdout.is_empty());
+    let written: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(written["data"][0]["title"], "Görev");
+}
+
+#[test]
+fn a_slow_tab_shows_the_wait_indicator() {
+    let plan = Plan {
+        capabilities: standard_caps(),
+        replies: read_ok(),
+        delay_ms: 1000,
+        ..Plan::default()
+    };
+    let (host, _) = hub(plan);
+    let dir = signed_in("indicator", &host);
+    let output = gecko(&dir, &["tasks.list"])
+        .env("GECKO_TEST_TTY", "1")
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let err = text(&output.stderr);
+    assert!(err.contains("\r\u{1b}[2Krunning in the tab… "), "{err:?}");
+    assert!(err.ends_with("\r\u{1b}[2K"), "{err:?}");
+
+    // With --json nothing is drawn.
+    let output = gecko(&dir, &["--json", "tasks.list"])
+        .env("GECKO_TEST_TTY", "1")
+        .output()
+        .unwrap();
+    assert!(output.stderr.is_empty(), "{:?}", text(&output.stderr));
+}
+
+fn help_plan(help: Value) -> Plan {
+    Plan {
+        capabilities: standard_caps(),
+        help: Some(help),
+        ..Plan::default()
+    }
+}
+
+#[test]
+fn help_prints_the_tabs_text() {
+    let plan = help_plan(json!({
+        "kind": "help-result", "status": "ok",
+        "text": ["Commands:", "  tasks.list · read", "      Lists the tasks."],
+        "next": ["help", "--cursor", "20"]
+    }));
+    let (output, seen) = run("help-text", plan, &["help"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        text(&output.stdout),
+        "Commands:\n  tasks.list · read\n      Lists the tasks.\nCLI options come before the command name: gecko --json <command> ...; the full output with --json.\nMore: gecko help --cursor 20\n"
+    );
+    assert_eq!(kinds(&seen), ["help-request"]);
+    assert_eq!(seen.envelopes[0]["want"], "text");
+    assert_eq!(seen.envelopes[0]["argv"], json!([]));
+}
+
+#[test]
+fn help_json_and_help_lines() {
+    let plan = help_plan(json!({
+        "kind": "help-result", "status": "ok", "result": { "name": "tasks.list" }
+    }));
+    let (output, seen) = run("help-json", plan, &["--json", "help", "tasks.list"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(json_of(&output)["data"], json!({ "name": "tasks.list" }));
+    assert_eq!(seen.envelopes[0]["want"], "json");
+    assert_eq!(seen.envelopes[0]["argv"], json!(["tasks.list"]));
+
+    let plan = help_plan(json!({
+        "kind": "help-result", "status": "error", "code": "unknown-command", "class": "usage",
+        "message": "unknown command: tsks", "suggest": ["tasks"]
+    }));
+    let (output, seen) = run("help-line", plan, &["--line", "help tsks"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(kinds(&seen), ["help-request"]);
+    assert_eq!(
+        text(&output.stderr),
+        "error (unknown-command): unknown command: tsks\nDid you mean: gecko help tasks\n"
+    );
+}
+
+#[test]
+fn help_without_a_login() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("line")
+        .join("help-no-login");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let output = gecko(&dir, &["help"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert!(text(&output.stdout).starts_with("gecko: remote control"));
+    assert!(text(&output.stderr).contains("gecko login --env <env>"));
+
+    let output = gecko(&dir, &["--json", "help"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(6));
+    assert_eq!(json_of(&output)["code"], "not-logged-in");
 }

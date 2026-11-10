@@ -154,7 +154,7 @@ impl DevTransport {
         let host = net::host_name(&url).map_err(transport)?;
         let port = url.port_or_known_default().unwrap_or(80);
         let opening = async {
-            let tcp = TcpStream::connect((host.as_str(), port))
+            let tcp = crate::tcp::connect(&host, port)
                 .await
                 .map_err(|error| Closed::Transport(format!("{}: {error}", options.host)))?;
             tcp.set_nodelay(true).map_err(transport)?;

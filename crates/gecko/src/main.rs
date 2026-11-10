@@ -83,7 +83,7 @@ fn run(args: impl IntoIterator<Item = OsString>, out: &mut dyn Write, err: &mut 
             let _ = writeln!(out, "{VERSION}");
             0
         }
-        Action::DevHub(rest) => dev_hub(&rest, err),
+        Action::DevHub(rest) => dev_hub(&rest, out, err),
         Action::Command(argv) => command(&argv, &options, out, err),
         Action::Line(line) => tab_line(None, Some(line), &options, out, err),
     }
@@ -226,12 +226,12 @@ fn usage_error(err: &mut dyn Write, error: &ArgError) -> u8 {
 }
 
 #[cfg(feature = "dev-hub")]
-fn dev_hub(rest: &[String], err: &mut dyn Write) -> u8 {
-    gecko_dev_hub::run(rest, err)
+fn dev_hub(rest: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
+    gecko_dev_hub::run(rest, out, err)
 }
 
 #[cfg(not(feature = "dev-hub"))]
-fn dev_hub(_rest: &[String], err: &mut dyn Write) -> u8 {
+fn dev_hub(_rest: &[String], _out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     let _ = writeln!(err, "gecko: this build has no dev hub");
     2
 }

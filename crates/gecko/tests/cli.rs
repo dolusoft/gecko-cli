@@ -45,11 +45,11 @@ fn unknown_option_is_a_usage_error() {
 // suite again with --no-default-features, as the release build is made.
 #[test]
 fn dev_hub_follows_the_feature() {
-    let output = gecko(&["dev-hub"]);
+    let output = gecko(&["dev-hub", "--nope"]);
     assert_eq!(output.status.code(), Some(2));
     let stderr = text(output.stderr);
     if cfg!(feature = "dev-hub") {
-        assert!(stderr.contains("not written yet"), "{stderr}");
+        assert!(stderr.contains("unknown option --nope"), "{stderr}");
     } else {
         assert!(stderr.contains("this build has no dev hub"), "{stderr}");
     }

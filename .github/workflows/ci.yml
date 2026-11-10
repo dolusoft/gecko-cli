@@ -92,6 +92,36 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The Rust development hub (K1) under the Node contract specs: the same specs that
+  # check the Node hub start `gecko dev-hub` from the Rust binary instead.
+  hub:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked -p gecko
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm exec vitest run tests/contract
+        env:
+          GECKO_TEST_HUB_BIN: ${{ github.workspace }}/target/debug/gecko${{ runner.os == 'Windows' && '.exe' || '' }}
+
   # The SignalR client of gecko-hub-client against the smallest
   # ASP.NET Core hub. The hub stays in CI because the real backend is not ours. Format
   # and clippy run in the rust job; this one only adds the hub.
@@ -136,7 +166,7 @@ jobs:
         run: cat hub.log
 
   verify:
-    needs: [checks, test, rust, signalr]
+    needs: [checks, test, rust, hub, signalr]
     # A skipped required check counts as passed; this one reports failures.
     if: ${{ always() }}
     runs-on: ubuntu-latest
@@ -146,7 +176,7 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "checks, test, rust, signalr: $RESULTS"
+          echo "checks, test, rust, hub, signalr: $RESULTS"
           for result in $RESULTS; do
             if [ "$result" != "success" ]; then
               exit 1

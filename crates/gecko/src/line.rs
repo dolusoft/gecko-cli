@@ -239,8 +239,15 @@ async fn run_in(
     let mut cancel_by: Option<Instant> = None;
     let far = Instant::now() + Duration::from_secs(365 * 24 * 3600);
     let mut delivered_checked = false;
+    let started = Instant::now();
+    let mut ticker = tokio::time::interval(Duration::from_millis(100));
+    let mut interrupted = false;
     loop {
         let event = tokio::select! {
+            _ = ticker.tick(), if io.progress && !interrupted => {
+                indicate(io, &run, started);
+                continue;
+            }
             event = session.hub.next_event() => match event {
                 Ok(HubEvent::Reply(raw)) => {
                     let Ok(value) = serde_json::from_str::<Value>(raw.get()) else { continue };
@@ -275,7 +282,16 @@ async fn run_in(
         match run.on(event) {
             Step::Wait => {}
             Step::Info(text) => io.info(&text),
+            Step::Approval(text) => {
+                if io.progress {
+                    indicate(io, &run, started);
+                } else {
+                    io.info(&text);
+                }
+            }
             Step::SendCancel => {
+                interrupted = true;
+                io.clear_progress();
                 let cancel = request::cancel(v, &id);
                 let sent = session.hub.send(&raw(&cancel)).await.is_ok();
                 cancel_by = Some(if sent {
@@ -299,6 +315,31 @@ async fn run_in(
             }
         }
     }
+}
+
+/// After this long a call shows the wait indicator (UX U3).
+const PROGRESS_AFTER: Duration = Duration::from_millis(700);
+
+/// The wait indicator's text: the approval's time left, or how long the call runs.
+fn indicate(io: &mut Io<'_>, run: &Run, started: Instant) {
+    if let Some(expires_at) = run.approval_expires_at() {
+        let left = expires_at - session::now_ms() as f64;
+        io.progress(&format!(
+            "Waiting for approval ({}): approve it in the Gecko tab in the browser",
+            crate::run::approx_left(left)
+        ));
+        return;
+    }
+    let elapsed = started.elapsed();
+    if elapsed < PROGRESS_AFTER {
+        return;
+    }
+    let state = if run.received() {
+        "running in the tab"
+    } else {
+        "reaching the tab"
+    };
+    io.progress(&format!("{state}… {:.1} s", elapsed.as_secs_f64()));
 }
 
 fn end_of(step: Step) -> Outcome {

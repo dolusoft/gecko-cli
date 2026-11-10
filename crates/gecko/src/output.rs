@@ -211,7 +211,7 @@ pub fn quote_argv(argv: &[String]) -> String {
 }
 
 /// The plain text of an ok result for stdout.
-fn plain_text(outcome: &Outcome) -> String {
+fn plain_text(outcome: &Outcome, columns: Option<usize>) -> String {
     let mut lines = Vec::new();
     let summary = outcome.summary.as_deref().map(escape_controls);
     if outcome.preview {
@@ -227,8 +227,7 @@ fn plain_text(outcome: &Outcome) -> String {
         lines.push(summary);
     }
     if let Some(data) = &outcome.data {
-        let text = serde_json::to_string_pretty(data).unwrap_or_default();
-        lines.push(escape_controls(&text));
+        lines.push(crate::format::format_data(data, columns));
     }
     if !outcome.complete {
         lines.push("(the result arrived incomplete; no data printed)".to_owned());
@@ -257,6 +256,12 @@ pub struct Io<'a> {
     pub err: &'a mut dyn Write,
     pub color: bool,
     pub json: bool,
+    /// The terminal's width when stdout is one (tables are cut to it).
+    pub columns: Option<usize>,
+    /// The one-line wait indicator may be drawn on stderr (UX U3).
+    pub progress: bool,
+    /// The indicator line is on screen now.
+    pub progress_shown: bool,
 }
 
 impl std::fmt::Debug for Io<'_> {
@@ -282,20 +287,68 @@ impl Io<'_> {
         }
     }
 
+    /// Where the CLI writes: colour, the indicator and the table width follow the
+    /// streams (a terminal, `--json`, `--out`).
+    pub fn new<'b>(
+        out: &'b mut dyn Write,
+        err: &'b mut dyn Write,
+        json: bool,
+        to_file: bool,
+    ) -> Io<'b> {
+        let stderr_tty = interactive(std::io::stderr().is_terminal());
+        let columns = if to_file || !std::io::stdout().is_terminal() {
+            None
+        } else {
+            terminal_size::terminal_size().map(|(w, _)| usize::from(w.0))
+        };
+        Io {
+            out,
+            err,
+            color: Io::stderr_color(),
+            json,
+            columns,
+            progress: !json && stderr_tty,
+            progress_shown: false,
+        }
+    }
+
+    /// Draws the wait indicator over its previous text (UX U3).
+    pub fn progress(&mut self, text: &str) {
+        if !self.progress {
+            return;
+        }
+        self.progress_shown = true;
+        let line = self.paint(2, &escape_controls(text));
+        let _ = write!(self.err, "\r\u{1b}[2K{line}");
+        let _ = self.err.flush();
+    }
+
+    /// Removes the indicator line, if one is shown.
+    pub fn clear_progress(&mut self) {
+        if self.progress_shown {
+            self.progress_shown = false;
+            let _ = write!(self.err, "\r\u{1b}[2K");
+        }
+    }
+
     /// A line for the reader on stderr (progress, codes, hints).
     pub fn info(&mut self, text: &str) {
+        self.clear_progress();
         let line = self.paint(2, &escape_controls(text));
         let _ = writeln!(self.err, "{line}");
     }
 
     /// Prints a result and returns the exit code.
     pub fn emit(&mut self, outcome: &Outcome) -> u8 {
+        self.clear_progress();
         if self.json {
             let text = gecko_wire::ascii::to_ascii_json(outcome)
                 .unwrap_or_else(|_| "{\"v\":1,\"status\":\"error\"}".to_owned());
             let _ = writeln!(self.out, "{text}");
         } else if outcome.status == "ok" {
-            let _ = self.out.write_all(plain_text(outcome).as_bytes());
+            let _ = self
+                .out
+                .write_all(plain_text(outcome, self.columns).as_bytes());
         } else {
             let head = match &outcome.code {
                 Some(code) => format!("error ({code})"),
@@ -360,6 +413,9 @@ mod tests {
             err: &mut err,
             color: false,
             json,
+            columns: None,
+            progress: false,
+            progress_shown: false,
         }
         .emit(outcome);
         (
@@ -426,7 +482,7 @@ mod tests {
         page.data = Some(serde_json::json!({ "n": 1 }));
         page.next = Some(vec!["tasks.list".into(), "--cursor".into(), "2".into()]);
         let (_, out, _) = render(&page, false);
-        assert_eq!(out, "{\n  \"n\": 1\n}\nMore: gecko tasks.list --cursor 2\n");
+        assert_eq!(out, "n: 1\nMore: gecko tasks.list --cursor 2\n");
 
         let mut unknown = Outcome::error("unknown-command", "unknown command: tsks", 2);
         unknown.suggest = Some(vec!["tasks.list".into()]);

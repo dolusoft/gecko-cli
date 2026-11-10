@@ -10,6 +10,7 @@ mod auth;
 mod binding;
 mod browser;
 mod config;
+mod format;
 mod interrupt;
 mod line;
 mod output;
@@ -47,6 +48,8 @@ Own commands:
 Options (before the command name):
   --json            one JSON object; non-ASCII characters as \uXXXX
   --env <env>       environment (default: the last login)
+  --out <file>      writes the result to the file as UTF-8
+  --view <id>       runs the command in this Data View
   -h, --help        this text
   -v, --version     the version
 
@@ -131,14 +134,29 @@ enum Job<'a> {
     },
 }
 
-/// Runs one job on a single-thread runtime and prints its result.
+/// Runs one job and prints its result: to stdout, or with `--out` to the file.
 fn execute(options: &Options, out: &mut dyn Write, err: &mut dyn Write, job: Job<'_>) -> u8 {
-    let mut io = Io {
-        out,
-        err,
-        color: Io::stderr_color(),
-        json: options.json,
+    let Some(path) = &options.out else {
+        return execute_to(options, out, err, job, false);
     };
+    let mut buffer = Vec::new();
+    let code = execute_to(options, &mut buffer, err, job, true);
+    if let Err(error) = std::fs::write(path, &buffer) {
+        let _ = writeln!(err, "error (failed): cannot write {path}: {error}");
+        return if code == 0 { 1 } else { code };
+    }
+    code
+}
+
+/// Runs one job on a single-thread runtime and prints its result.
+fn execute_to(
+    options: &Options,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+    job: Job<'_>,
+    to_file: bool,
+) -> u8 {
+    let mut io = Io::new(out, err, options.json, to_file);
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

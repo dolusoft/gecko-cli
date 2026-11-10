@@ -3,6 +3,8 @@
 //! the `--json` result. The run is the binary's own module, built here by path.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, dead_code)]
 
+#[path = "../src/format.rs"]
+mod format;
 #[path = "../src/output.rs"]
 mod output;
 #[path = "../src/run.rs"]
@@ -33,7 +35,7 @@ fn feed(example: &Value) -> output::Outcome {
         };
         match run.on(event) {
             Step::End(outcome) => return *outcome,
-            Step::Wait | Step::Info(_) | Step::SendCancel => {}
+            Step::Wait | Step::Info(_) | Step::Approval(_) | Step::SendCancel => {}
         }
     }
     // Ctrl+C sent a cancel; the wait for its answer ran out.

@@ -15,6 +15,7 @@ Kullanıcı deneyimi turu: frontend-v2-design `design/desktop-cli-ux.md` (taslak
 - Çekiç turu 2: `gecko attach` sekme `/cli-pair` sayfasındayken başlık ve yol yazmaz, yalnız "Bağlandı" (sekme hemen ardından başka sayfaya geçtiği için başlık bayat olur); `nav.where` cevap vermezse de yalnız "Bağlandı". "Görünüm: …" satırı yalnız `dataview.*` komutlarında ya da `--view` verildiğinde basılır; `--json`'daki `view` alanı değişmedi.
 - Hub: kapanış el sıkışmasına girmiş (kapanış çerçevesi gelmiş, `close` olayı henüz düşmemiş) CLI bağlantısı yetkiyi tutmaz; hemen ardından gelen çağrı `busy` almaz. Windows'ta soket kapanışı geciktiği için ardışık iki `gecko` çağrısında ara ara görülüyordu.
 - `received` gelmeden bağlantı koparsa okuma komutu kod 4 `connection-lost` ("okuma komutu güvenle yeniden denenir"); değiştiren komutta kod 5 `unknown` kalır.
+- `received` gelmeden hub'ın süresi (`expiresAt`) dolarsa değiştiren komut kod 5 `unknown-outcome` ("istek çalışmış olabilir"); önceden kod 4 `not-delivered` ("güvenle yeniden denenir") dönüyordu. Sekme komutu çalıştırıp `received`'i kaybetmiş olabilir; süre dolması çalışmadığını kanıtlamaz. Okuma komutunda kod 4 `not-delivered` kalır (#10).
 
 ### Spec'ten sapmalar
 

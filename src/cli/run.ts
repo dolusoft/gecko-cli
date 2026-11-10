@@ -419,7 +419,18 @@ export async function runLine(options: RunOptions): Promise<Result> {
         deliveryTimer = setTimeout(
           () => {
             if (!received && !interrupted) {
-              // Past `expiresAt` the tab does not run it (Fable B-6).
+              // Past `expiresAt` the tab does not run it (Fable B-6), but it
+              // may have run it before, with its `received` lost on the way:
+              // a changing command is then of unknown outcome, never safe to
+              // run again (#10).
+              if (change) {
+                return end(
+                  errorResult(
+                    'unknown-outcome',
+                    'sekmeden cevap gelmedi; istek çalışmış olabilir, tarayıcıda kontrol edin'
+                  )
+                )
+              }
               end(
                 errorResult(
                   'not-delivered',

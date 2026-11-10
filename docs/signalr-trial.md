@@ -12,6 +12,8 @@ Gerçek Gecko hub'ı (`dolusoft/gecko-project-backend#1974`) SignalR olacak. Rus
 - `spikes/signalr-crate/`: `signalr-client` 0.3.2 ile aynı hub'a bağlanır.
 - `spikes/signalr-manual/`: `tokio-tungstenite` üstünde elle yazılmış istemci (`protocol.rs` çerçeve ve mesajlar, `connection.rs` bağlantı, `stream.rs` TCP/TLS). 9 birim, 12 entegrasyon testi.
 
+İki deneme crate'i adım 4b-1'de silindi; elle istemci bugün `crates/gecko-hub-client/src/signalr/`'da (aşağıda "Sonraki adım"). Crate denemesinin kodu `eee7f30` commit'inde duruyor.
+
 ## Sonuç tablosu
 
 Crate hub'a bağlanamadığı için (ilk satır) sütunundaki diğer satırlar crate'in kaynağından okundu (`communication/common.rs`, `communication/client_tokio.rs`, `execution/storage.rs`); kimlik, bağımlılık ve boyut satırları çalıştırılarak ölçüldü. Elle istemcinin her satırı testle ya da çalıştırarak doğrulandı.
@@ -62,8 +64,10 @@ Desteklenmeyenler (bilerek): MessagePack, long polling, server-sent events, stat
 
 ## Sonraki adım
 
-İstemci adım 4b'de `crates/gecko-hub-client`'e taşınır ve `Transport` trait'inin SignalR uygulaması olur; `spikes/` o PR'da silinir, CI işi crate testlerine geçer. 4b'ye kalanlar:
+**Yapıldı (adım 4b-1):** istemci `crates/gecko-hub-client`'e taşındı (`src/signalr/` protokol ve bağlantı, `src/net.rs` TCP/TLS ve tünel, `src/proxy.rs` vekil kuralı); `spikes/` silindi, CI'ın `signalr` işi `cargo test -p gecko-hub-client` koşuyor. Denemeden kalan üç iş de bu adımda bitti:
 
-- Vekil: `HTTPS_PROXY`/`NO_PROXY` için WebSocket `CONNECT` tüneli `stream.rs`'ye eklenir.
-- Hata metnindeki HTTP gövdesi kısaltılır (bugün sayfanın tamamı geliyor).
-- `invoke` başına zaman aşımı `Transport` katmanında.
+- Vekil: `https_proxy`/`http_proxy`/`all_proxy` ve `no_proxy` (büyük harfli adlar da) tek kuraldır; `negotiate` (reqwest'in kendi vekil araması kapalı) ve WebSocket aynı kurala uyar. WebSocket için `CONNECT` tüneli, adresteki `user:password` ile `Proxy-Authorization: Basic`. Yalnız `http://` vekil; `https://` ve SOCKS vekil açık hata verir, `no_proxy`'de CIDR yok. Test: yerel bir `CONNECT` vekili üstünden bağlantı, `no_proxy` ile doğrudan bağlantı, ulaşılamayan vekil.
+- Hata metnindeki HTTP gövdesi tek satıra indirilir ve 200 karakterde kesilir.
+- `invoke` başına cevap süresi (`Options::invoke_timeout`, varsayılan 10 sn, Node'daki RPC ile aynı). Süre dolunca `InvokeError::TimedOut`; bağlantı açık kalır, geç gelen cevap atılır. Sonucun bilinmediğine çağıran karar verir.
+
+`Transport` trait'inin SignalR uygulaması adım 7'de, #1974 yöntem adlarının SignalR yazımını verince gelir.

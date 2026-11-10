@@ -2,9 +2,13 @@
 //!
 //! A transport carries opaque envelopes; it never reads the tab's payload. Hub errors come
 //! back as values (`HubError`), and the end of a connection comes back as a reason
-//! (`Closed`) rather than a close code (B18). Two transports follow in step 4b: the
-//! development hub (WebSocket frames) and SignalR (the narrow client chosen in step 4a,
-//! docs/signalr-trial.md). Neither reconnects, so a command is never sent twice.
+//! (`Closed`) rather than a close code (B18). Two transports: the development hub
+//! (WebSocket frames, step 4b) and SignalR (`signalr`, the narrow client chosen in step
+//! 4a, docs/signalr-trial.md). Neither reconnects, so a command is never sent twice.
+
+pub mod net;
+pub mod proxy;
+pub mod signalr;
 
 use std::future::Future;
 

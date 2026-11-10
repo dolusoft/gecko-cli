@@ -138,6 +138,12 @@ public sealed class TestHub(ConnectionRegistry registry) : Hub
 
                 return new { ok = true, value = new { answer } };
 
+            case "slow":
+                // Answers late, for the client's per-call answer limit.
+                var ms = envelope.TryGetProperty("ms", out var m) && m.TryGetInt32(out var parsed) ? parsed : 1000;
+                await Task.Delay(ms, Context.ConnectionAborted);
+                return new { ok = true, value = new { slept = ms } };
+
             case "burst":
                 // Several records written back to back; the transport usually packs them in one frame.
                 for (var i = 0; i < 3; i++)

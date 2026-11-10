@@ -1,20 +1,29 @@
-//! The trial scenarios (docs/rust-migration.md §7.4) against tests/signalr-hub.
+//! The SignalR client (docs/rust-migration.md §7.4) against tests/signalr-hub.
 //!
 //! Needs a running hub with short keep-alive settings:
 //!   TEST_HUB_KEEPALIVE_MS=500 TEST_HUB_CLIENT_TIMEOUT_MS=2000 SignalRTestHub --urls http://127.0.0.1:5199
 //! and GECKO_SIGNALR_TEST_HUB=http://127.0.0.1:5199. Without the variable the tests are
-//! skipped, except in CI, where a missing hub fails them.
+//! skipped; the CI job that starts the hub also sets GECKO_SIGNALR_TEST_HUB_REQUIRED=1,
+//! so a missing hub fails there instead of passing silently.
+// Test helpers outside #[test] functions: clippy's test allowances do not reach them.
+#![allow(clippy::print_stderr, clippy::unwrap_used)]
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use gecko_hub_client::Closed;
+use gecko_hub_client::proxy::ProxyRule;
+use gecko_hub_client::signalr::{Connection, InvokeError, Options, hub_result};
 use serde_json::value::RawValue;
-use signalr_manual_trial::{hub_result, Closed, Connection, InvokeError, Options};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 
 fn base() -> Option<String> {
     match std::env::var("GECKO_SIGNALR_TEST_HUB") {
         Ok(url) => Some(url.trim_end_matches('/').to_owned()),
-        Err(_) if std::env::var_os("CI").is_some() => {
-            panic!("GECKO_SIGNALR_TEST_HUB is not set in CI")
+        Err(_) if std::env::var_os("GECKO_SIGNALR_TEST_HUB_REQUIRED").is_some() => {
+            panic!("GECKO_SIGNALR_TEST_HUB is not set although the hub is required")
         }
         Err(_) => {
             eprintln!("skipped: GECKO_SIGNALR_TEST_HUB is not set");
@@ -27,7 +36,60 @@ fn options(base: &str, token: &str) -> Options {
     let mut options = Options::new(format!("{base}/hub"), token);
     options.keep_alive = Duration::from_millis(1000);
     options.server_timeout = Duration::from_secs(5);
+    options.proxy = ProxyRule::none();
     options
+}
+
+/// A CONNECT proxy on a random local port; counts the tunnels it opened.
+async fn connect_proxy() -> (String, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let tunnels = Arc::new(AtomicUsize::new(0));
+    let counter = tunnels.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut client, _)) = listener.accept().await else {
+                return;
+            };
+            let counter = counter.clone();
+            tokio::spawn(async move {
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    if client.read(&mut byte).await.unwrap_or(0) == 0 {
+                        return;
+                    }
+                    head.push(byte[0]);
+                }
+                let head = String::from_utf8_lossy(&head).into_owned();
+                let target = head.split(' ').nth(1).unwrap_or("").to_owned();
+                let Ok(mut upstream) = TcpStream::connect(target).await else {
+                    let _ = client.write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n").await;
+                    return;
+                };
+                counter.fetch_add(1, Ordering::SeqCst);
+                client
+                    .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                    .await
+                    .unwrap();
+                let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
+            });
+        }
+    });
+    (format!("http://{address}"), tunnels)
+}
+
+fn proxy_rule(pairs: &[(&str, &str)]) -> ProxyRule {
+    let pairs: Vec<(String, String)> = pairs
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect();
+    ProxyRule::from_lookup(move |name| {
+        pairs
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.clone())
+    })
 }
 
 fn raw(json: &str) -> Box<RawValue> {
@@ -43,10 +105,12 @@ async fn skip_negotiation_status_send_and_reply() {
     let Some(base) = base() else { return };
     let mut connection = Connection::connect(&options(&base, "good")).await.unwrap();
     let status = connection.invoke("Status", &[]).await.unwrap();
-    assert!(hub_result(&status)
-        .unwrap()
-        .get()
-        .contains("\"bound\":true"));
+    assert!(
+        hub_result(&status)
+            .unwrap()
+            .get()
+            .contains("\"bound\":true")
+    );
 
     let accepted = send(&mut connection, "{\"kind\":\"echo\",\"n\":1}")
         .await
@@ -71,6 +135,7 @@ async fn negotiate_then_connect() {
 async fn negotiate_redirect_switches_url_and_token() {
     let Some(base) = base() else { return };
     let mut opts = Options::new(format!("{base}/redirect"), "outer");
+    opts.proxy = ProxyRule::none();
     opts.skip_negotiation = false;
     let mut connection = Connection::connect(&opts).await.unwrap();
     assert!(connection.invoke("Status", &[]).await.is_ok());
@@ -197,4 +262,60 @@ async fn silent_server_times_out() {
     opts.server_timeout = Duration::from_millis(200);
     let mut connection = Connection::connect(&opts).await.unwrap();
     assert_eq!(connection.reason().await, Closed::ServerTimeout);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn late_answer_times_out_and_the_connection_stays() {
+    let Some(base) = base() else { return };
+    let mut opts = options(&base, "good");
+    opts.invoke_timeout = Duration::from_millis(300);
+    let mut connection = Connection::connect(&opts).await.unwrap();
+    assert_eq!(
+        send(&mut connection, "{\"kind\":\"slow\",\"ms\":1500}")
+            .await
+            .err(),
+        Some(InvokeError::TimedOut)
+    );
+    // The late Completion is dropped; the next call gets its own answer.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let status = connection.invoke("Status", &[]).await.unwrap();
+    assert!(hub_result(&status).unwrap().get().contains("\"bound\""));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn websocket_goes_through_the_connect_tunnel() {
+    let Some(base) = base() else { return };
+    let (proxy, tunnels) = connect_proxy().await;
+    let mut opts = options(&base, "good");
+    opts.proxy = proxy_rule(&[("HTTP_PROXY", &proxy)]);
+    let mut connection = Connection::connect(&opts).await.unwrap();
+    assert!(connection.invoke("Status", &[]).await.is_ok());
+    assert_eq!(tunnels.load(Ordering::SeqCst), 1);
+    assert_eq!(connection.close().await, Closed::Local);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn no_proxy_connects_directly() {
+    let Some(base) = base() else { return };
+    let (proxy, tunnels) = connect_proxy().await;
+    let mut opts = options(&base, "good");
+    opts.proxy = proxy_rule(&[("HTTP_PROXY", &proxy), ("NO_PROXY", "127.0.0.1,localhost")]);
+    let mut connection = Connection::connect(&opts).await.unwrap();
+    assert!(connection.invoke("Status", &[]).await.is_ok());
+    assert_eq!(tunnels.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn unreachable_proxy_is_a_transport_error() {
+    let Some(base) = base() else { return };
+    // A port nothing listens on: bind, read the port, release it.
+    let free = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = free.local_addr().unwrap();
+    drop(free);
+    let mut opts = options(&base, "good");
+    opts.proxy = proxy_rule(&[("HTTP_PROXY", &format!("http://{address}"))]);
+    match Connection::connect(&opts).await.err() {
+        Some(Closed::Transport(text)) => assert!(text.contains("proxy"), "{text}"),
+        other => panic!("unexpected {other:?}"),
+    }
 }

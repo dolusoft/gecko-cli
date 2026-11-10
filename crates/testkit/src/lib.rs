@@ -26,7 +26,7 @@ use std::time::Duration;
 
 pub use cli::{Call, Cli, Output, Process};
 pub use envelope::Envelope;
-pub use fixtures::{capabilities, fixture};
+pub use fixtures::{capabilities, capabilities_with, fixture};
 pub use flow::{connect, disconnect};
 pub use hub::{Hub, Options, Timings, User};
 pub use tab::{Request, Tab};

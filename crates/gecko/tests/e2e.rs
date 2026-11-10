@@ -4,9 +4,15 @@
 //! these: the hub comes from the testkit, not from the binary.
 
 use gecko_testkit::envelope::{
-    Finished, Received, awaiting_approval, chunk, received, received_change, received_read,
+    Finished, Received, awaiting_approval, cancel_requested, cancelled_before_start, chunk,
+    received, received_change, received_read, replay,
 };
-use gecko_testkit::{Cli, Hub, Process, Request, Tab, WAIT, connect, disconnect, now_ms};
+use std::time::{Duration, Instant};
+
+use gecko_testkit::{
+    Cli, Hub, Output, Process, Request, Tab, WAIT, capabilities_with, connect, disconnect, fixture,
+    now_ms,
+};
 use serde_json::{Value, json};
 
 const GECKO: &str = env!("CARGO_BIN_EXE_gecko");
@@ -299,6 +305,8 @@ async fn a_rejected_change_exits_3() {
             assert_eq!(result["code"], "not-allowed", "{output}");
             assert_eq!(result["exitCode"], 3, "{output}");
             assert!(result.get("approval").is_none(), "{output}");
+            // A rejected card suggests nothing; an expired one does.
+            assert!(result.get("suggest").is_none(), "{output}");
         } else {
             assert!(
                 output.stderr.contains(
@@ -306,6 +314,7 @@ async fn a_rejected_change_exits_3() {
                 ),
                 "{output}"
             );
+            assert!(!output.stderr.contains("Did you mean"), "{output}");
         }
         card.hub.stop();
     }
@@ -344,23 +353,36 @@ async fn a_lost_hub_during_the_approval_exits_5() {
 async fn an_expired_approval_exits_3() {
     for json in [false, true] {
         let mut card = open_card(json).await;
-        // The fixtures have no example of an expired card; the tab refuses the change
-        // as `not-allowed` (class `denied`), as for a rejection.
+        // command-console 1.8.x: an expired card ends as `not-allowed` (class
+        // `denied`) and suggests the command again, without the approval field
+        // (1.8.2 `change-server-card-expired`; not yet in the fixtures here).
         let expired = Finished::error(
             "not-allowed",
             "denied",
-            Some("The approval expired in the browser; nothing changed."),
-        );
+            Some("The approval expired; nothing changed."),
+        )
+        .suggest(&["tasks.stop", "--id", "8812"]);
         card.tab.reply(&expired.envelope(&card.request.id)).await;
         let output = card.run.output().await;
         output.expect_code(3);
         if json {
-            assert_eq!(output.json()["code"], "not-allowed", "{output}");
+            let result = output.json();
+            assert_eq!(result["status"], "error", "{output}");
+            assert_eq!(result["code"], "not-allowed", "{output}");
+            assert_eq!(result["exitCode"], 3, "{output}");
+            assert_eq!(
+                result["suggest"],
+                json!(["tasks.stop", "--id", "8812"]),
+                "{output}"
+            );
+            assert!(result.get("approval").is_none(), "{output}");
         } else {
-            assert!(
-                output
-                    .stderr
-                    .contains("error (not-allowed): The approval expired"),
+            assert_eq!(output.stdout, "", "{output}");
+            assert_eq!(
+                output.stderr,
+                format!(
+                    "{WAIT_LINE}\nerror (not-allowed): The approval expired; nothing changed.\nDid you mean: gecko tasks.stop --id 8812\n"
+                ),
                 "{output}"
             );
         }
@@ -452,4 +474,468 @@ async fn a_silent_tab_is_found_by_the_heartbeat() {
     until_state(&cli, "active").await;
     tab.close().await;
     hub.stop();
+}
+
+// --- Row 11: Ctrl+C ------------------------------------------------------------------
+
+/// A bound CLI whose `search` the tab has accepted (`received`), with the Ctrl+C hook
+/// on; `wait_ms` is `GECKO_CANCEL_WAIT_MS` when given.
+async fn running_read(wait_ms: Option<u64>) -> (Hub, Tab, Cli, Process, Request) {
+    let hub = Hub::start();
+    let mut tab = Tab::open(&hub, "p1").await;
+    let cli = Cli::new(GECKO).json();
+    connect(&hub, &cli, &mut tab, "ask-server").await;
+    let mut call = cli.call(["search", "--ip", "1"]).interrupts();
+    if let Some(wait) = wait_ms {
+        call = call.env("GECKO_CANCEL_WAIT_MS", &wait.to_string());
+    }
+    let run = call.spawn();
+    let request = tab.request().await;
+    tab.reply(&received_read(&request.id)).await;
+    (hub, tab, cli, run, request)
+}
+
+/// Waits for the CLI's `cancel` of `request`.
+async fn saw_cancel(tab: &mut Tab, request: &Request) {
+    let cancel = tab.request().await;
+    assert_eq!(cancel.kind, "cancel", "{:?}", cancel.message);
+    assert_eq!(cancel.id, request.id, "{:?}", cancel.message);
+}
+
+fn expect_cancelled(output: &Output, code: &str) {
+    output.expect_code(130);
+    let result = output.json();
+    assert_eq!(result["status"], "cancelled", "{output}");
+    assert_eq!(result["code"], code, "{output}");
+    assert_eq!(result["complete"], false, "{output}");
+}
+
+#[tokio::test]
+async fn ctrl_c_sends_cancel_and_the_tabs_answer_ends_it() {
+    let (hub, mut tab, _cli, mut run, request) = running_read(None).await;
+    run.interrupt();
+    saw_cancel(&mut tab, &request).await;
+    tab.reply(&cancel_requested(&request.id)).await;
+    let cancelled = Finished::error("cancelled", "cancelled", None);
+    tab.reply(&cancelled.envelope(&request.id)).await;
+    expect_cancelled(&run.output().await, "cancel-requested");
+    tab.close().await;
+    hub.stop();
+}
+
+#[tokio::test]
+async fn cancelled_before_start_exits_130() {
+    // The answer comes at once; the CLI ends when its cancel wait (3 s) is over.
+    let (hub, mut tab, _cli, mut run, request) = running_read(None).await;
+    run.interrupt();
+    saw_cancel(&mut tab, &request).await;
+    tab.reply(&cancelled_before_start(&request.id)).await;
+    expect_cancelled(&run.output().await, "cancelled-before-start");
+    tab.close().await;
+    hub.stop();
+}
+
+#[tokio::test]
+async fn an_unanswered_cancel_ends_after_the_cancel_wait() {
+    let (hub, mut tab, _cli, mut run, request) = running_read(Some(100)).await;
+    let pressed = Instant::now();
+    run.interrupt();
+    saw_cancel(&mut tab, &request).await;
+    // The tab says nothing more.
+    let output = run.output().await;
+    let took = pressed.elapsed();
+    expect_cancelled(&output, "cancelled");
+    // `GECKO_CANCEL_WAIT_MS` counts, not the default 3 s.
+    assert!(took < Duration::from_millis(2500), "{took:?}\n{output}");
+    tab.close().await;
+    hub.stop();
+}
+
+#[tokio::test]
+async fn a_second_ctrl_c_ends_the_wait() {
+    // A cancel wait longer than any test: only the second Ctrl+C can end it in time.
+    let (hub, mut tab, _cli, mut run, request) = running_read(Some(600_000)).await;
+    run.interrupt();
+    saw_cancel(&mut tab, &request).await;
+    run.interrupt();
+    expect_cancelled(&run.output().await, "cancelled");
+    tab.close().await;
+    hub.stop();
+}
+
+/// A real SIGINT, sent with `kill -INT` as a terminal does: the same cancel as the
+/// test hook. Windows cannot send it to a child process.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_real_sigint_sends_cancel() {
+    let hub = Hub::start();
+    let mut tab = Tab::open(&hub, "p1").await;
+    let cli = Cli::new(GECKO).json();
+    connect(&hub, &cli, &mut tab, "ask-server").await;
+    let run = cli.call(["search", "--ip", "1"]).spawn();
+    // The request is out: the CLI listens for Ctrl+C by now.
+    let request = tab.request().await;
+    tab.reply(&received_read(&request.id)).await;
+    let killed = std::process::Command::new("kill")
+        .arg("-INT")
+        .arg(run.pid().to_string())
+        .status()
+        .expect("kill runs");
+    assert!(killed.success(), "kill -INT {}: {killed}", run.pid());
+    saw_cancel(&mut tab, &request).await;
+    tab.reply(&cancel_requested(&request.id)).await;
+    let cancelled = Finished::error("cancelled", "cancelled", None);
+    tab.reply(&cancelled.envelope(&request.id)).await;
+    expect_cancelled(&run.output().await, "cancel-requested");
+    tab.close().await;
+    hub.stop();
+}
+
+// --- Row 13: the lines about the tab -------------------------------------------------
+
+/// Runs `args` on a bound CLI; the tab accepts with `fields` and ends with `finished`.
+async fn read_with(
+    cli: &Cli,
+    tab: &mut Tab,
+    args: &[&str],
+    fields: Received,
+    finished: Finished,
+) -> Output {
+    let run = cli.call(args).spawn();
+    let request = tab.request().await;
+    tab.reply(&received(&request.id, fields)).await;
+    tab.reply(&finished.envelope(&request.id)).await;
+    run.output().await
+}
+
+#[tokio::test]
+async fn a_hidden_tab_says_how_old_its_data_is() {
+    let hub = Hub::start();
+    let mut tab = Tab::open(&hub, "p1").await;
+    let cli = Cli::new(GECKO);
+    connect(&hub, &cli, &mut tab, "ask-server").await;
+
+    let hidden = Received {
+        hidden: true,
+        data_age_ms: Some(42_400),
+        ..Received::default()
+    };
+    let output = read_with(&cli, &mut tab, &["search"], hidden, Finished::ok("done")).await;
+    output.expect_code(0);
+    assert_eq!(
+        output.stderr, "the tab is in the background; its data is 42 s old\n",
+        "{output}"
+    );
+    assert_eq!(output.stdout, "done\n", "{output}");
+
+    // A visible tab says nothing, whatever the age.
+    let visible = Received {
+        data_age_ms: Some(42_400),
+        ..Received::default()
+    };
+    let output = read_with(&cli, &mut tab, &["search"], visible, Finished::ok("done")).await;
+    output.expect_code(0);
+    assert_eq!(output.stderr, "", "{output}");
+
+    tab.close().await;
+    hub.stop();
+}
+
+#[tokio::test]
+async fn the_view_line_comes_only_in_a_data_view() {
+    let hub = Hub::start();
+    let mut tab = Tab::open(&hub, "p1").await;
+    let cli = Cli::new(GECKO);
+    connect(&hub, &cli, &mut tab, "ask-server").await;
+    tab.publish_capabilities(capabilities_with(&[("dataview.open", "read")]))
+        .await
+        .expect("the list is taken");
+    let with_view = || Finished::ok("done").view("v7", Some("Open tasks"));
+
+    for (args, line) in [
+        // A Data View's command, and any command run in a view.
+        (&["dataview.open"][..], "View: Open tasks\n"),
+        (&["--view", "v7", "search"][..], "View: Open tasks\n"),
+        // Elsewhere the view the tab names is not a line.
+        (&["search"][..], ""),
+    ] {
+        let output = read_with(&cli, &mut tab, args, Received::default(), with_view()).await;
+        output.expect_code(0);
+        assert_eq!(output.stderr, line, "{output}");
+        assert_eq!(output.stdout, "done\n", "{output}");
+    }
+
+    // Without a title, the view's id.
+    let output = read_with(
+        &cli,
+        &mut tab,
+        &["dataview.open"],
+        Received::default(),
+        Finished::ok("done").view("v7", None),
+    )
+    .await;
+    output.expect_code(0);
+    assert_eq!(output.stderr, "View: v7\n", "{output}");
+
+    tab.close().await;
+    hub.stop();
+}
+
+// --- Row 14: no binding --------------------------------------------------------------
+
+#[tokio::test]
+async fn a_line_without_a_token_is_no_binding() {
+    for json in [false, true] {
+        let cli = cli(json);
+        let output = cli.run(["--line", "search --ip 1"]).await;
+        output.expect_code(4);
+        if json {
+            let result = output.json();
+            assert_eq!(result["code"], "no-binding", "{output}");
+            assert_eq!(result["exitCode"], 4, "{output}");
+        } else {
+            assert!(
+                output.stderr.starts_with("error (no-binding): "),
+                "{output}"
+            );
+            assert!(output.stderr.contains("gecko attach <code>"), "{output}");
+        }
+    }
+}
+
+// --- Row 15: the small ones ----------------------------------------------------------
+
+#[tokio::test]
+async fn line_dash_reads_the_line_from_stdin() {
+    let hub = Hub::start();
+    let mut tab = Tab::open(&hub, "p1").await;
+    let cli = Cli::new(GECKO);
+    connect(&hub, &cli, &mut tab, "ask-server").await;
+    let run = cli
+        .call(["--line", "-"])
+        .stdin("search --ip \"a b\"\r\n")
+        .spawn();
+    let request = tab.request().await;
+    assert_eq!(request.kind, "cli-request");
+    // The line goes as it was written, less its line end; the tab parses it.
+    assert_eq!(
+        request.message["line"], "search --ip \"a b\"",
+        "{:?}",
+        request.message
+    );
+    assert!(request.argv.is_none(), "{:?}", request.message);
+    tab.reply(&received_read(&request.id)).await;
+    tab.reply(&Finished::ok("done").envelope(&request.id)).await;
+    run.output().await.expect_code(0);
+    tab.close().await;
+    hub.stop();
+}
+
+#[tokio::test]
+async fn a_rate_limit_over_5_s_is_busy_at_once() {
+    // One request in ten seconds: the second send would wait ~10 s, over the CLI's
+    // 5 s in all, so it ends at once as `busy`.
+    let hub = Hub::with(|options| {
+        options.rate_per_second = 0.1;
+        options.rate_burst = Some(1.0);
+    });
+    let mut tab = Tab::open(&hub, "p1").await;
+    let cli = Cli::new(GECKO).json();
+    connect(&hub, &cli, &mut tab, "ask-server").await;
+    let output = read_with(
+        &cli,
+        &mut tab,
+        &["search"],
+        Received::default(),
+        Finished::ok("done"),
+    )
+    .await;
+    output.expect_code(0);
+    let started = Instant::now();
+    let output = cli.run(["search"]).await;
+    let took = started.elapsed();
+    output.expect_code(4);
+    assert_eq!(output.json()["code"], "busy", "{output}");
+    assert!(took < Duration::from_secs(5), "{took:?}\n{output}");
+    tab.close().await;
+    hub.stop();
+}
+
+#[tokio::test]
+async fn the_token_is_renewed_30_s_before_it_ends() {
+    // A 30 s token is due at once; a 2 min one is not.
+    for (ttl, renewed) in [(30_000.0, true), (120_000.0, false)] {
+        let hub = Hub::with(|options| options.timings.access_ttl_ms = ttl);
+        let mut tab = Tab::open(&hub, "p1").await;
+        let cli = Cli::new(GECKO);
+        connect(&hub, &cli, &mut tab, "ask-server").await;
+        let before = cli.token().expect("a token");
+        cli.run(["status"]).await.expect_code(0);
+        let after = cli.token().expect("a token");
+        assert_eq!(
+            before["accessToken"] != after["accessToken"],
+            renewed,
+            "ttl {ttl}: {before} -> {after}"
+        );
+        if renewed {
+            assert!(
+                after["accessExpiresAt"].as_u64() > before["accessExpiresAt"].as_u64(),
+                "{before} -> {after}"
+            );
+        }
+        tab.close().await;
+        hub.stop();
+    }
+}
+
+/// `icacls` of `token.json`: inheritance removed, one entry, the user's, full control.
+#[cfg(windows)]
+#[tokio::test]
+async fn the_token_file_is_the_users_alone() {
+    let hub = Hub::start();
+    let mut tab = Tab::open(&hub, "p1").await;
+    let cli = Cli::new(GECKO);
+    connect(&hub, &cli, &mut tab, "ask-server").await;
+    let path = cli.dir().join("token.json");
+    let listed = std::process::Command::new("icacls")
+        .arg(&path)
+        .output()
+        .expect("icacls runs");
+    assert!(listed.status.success(), "{listed:?}");
+    let text = String::from_utf8_lossy(&listed.stdout).into_owned();
+    // The path stands before the first entry; each entry is `<who>:<rights>`, and the
+    // last line counts the files.
+    let path_text = path.display().to_string();
+    let entries: Vec<String> = text
+        .lines()
+        .map(|line| {
+            line.strip_prefix(path_text.as_str())
+                .unwrap_or(line)
+                .trim()
+                .to_ascii_lowercase()
+        })
+        .filter(|line| line.contains(":("))
+        .collect();
+    let user = std::env::var("USERNAME")
+        .expect("USERNAME")
+        .to_ascii_lowercase();
+    assert_eq!(entries.len(), 1, "{text}");
+    let entry = &entries[0];
+    let who = entry.split(":(").next().unwrap_or_default();
+    assert!(who == user || who.ends_with(&format!("\\{user}")), "{text}");
+    // Full control, not inherited (`(I)`).
+    assert_eq!(&entry[who.len()..], ":(f)", "{text}");
+    tab.close().await;
+    hub.stop();
+}
+
+// --- command-console 1.8.0 `sequence/`, end to end -----------------------------------
+
+/// Plays every example of one 1.8.0 `sequence/` file through the real binary and the
+/// real hub: the fake tab sends each example's `replies` as they are; `connection-lost`
+/// stops the hub, `timeout` is silence past a short delivery window, `ctrl-c` is the
+/// test hook and waits for the CLI's `cancel`. Returns how many examples ran.
+async fn sequences(file: &str) -> usize {
+    let examples = fixture("1.8.0", &format!("sequence/{file}"));
+    let examples = examples.as_array().expect("a list of examples");
+    for example in examples {
+        play(file, example).await;
+    }
+    examples.len()
+}
+
+async fn play(file: &str, example: &Value) {
+    let name = format!("{file}/{}", example["name"].as_str().unwrap_or("?"));
+    let replies = example["replies"].as_array().expect("replies");
+    let event = |wanted: &str| replies.iter().any(|item| item["event"] == wanted);
+    let timeout = event("timeout");
+    let hub = Hub::with(|options| {
+        if timeout {
+            options.timings.request_ttl_ms = 300.0;
+        }
+    });
+    let mut tab = Tab::open(&hub, "p1").await;
+    let cli = Cli::new(GECKO).json();
+    let level = example["tab"]["level"].as_str().unwrap_or("ask-server");
+    connect(&hub, &cli, &mut tab, level).await;
+    // The examples' read command is `tasks.list`.
+    tab.publish_capabilities(capabilities_with(&[("tasks.list", "read")]))
+        .await
+        .expect("the list is taken");
+    let argv: Vec<&str> = example["request"]["argv"]
+        .as_array()
+        .expect("argv")
+        .iter()
+        .map(|word| word.as_str().expect("a word"))
+        .collect();
+    let mut call = cli.call(&argv);
+    if event("ctrl-c") {
+        call = call.interrupts();
+    }
+    if timeout {
+        call = call.env("GECKO_DELIVERY_MARGIN_MS", "0");
+    }
+    let mut run = call.spawn();
+    let request = tab.request().await;
+    let sent: Vec<&str> = request.argv.iter().flatten().map(String::as_str).collect();
+    assert_eq!(sent, argv, "{name}");
+    let mut hub = Some(hub);
+    for item in replies {
+        match item["event"].as_str() {
+            Some("connection-lost") => {
+                if let Some(hub) = hub.take() {
+                    hub.stop();
+                }
+            }
+            // Silence: the window runs out.
+            Some("timeout") => {}
+            Some("ctrl-c") => {
+                run.interrupt();
+                saw_cancel(&mut tab, &request).await;
+            }
+            Some(other) => panic!("{name}: unknown event {other}"),
+            None => tab.reply(&replay(item, &request.id)).await,
+        }
+    }
+    let output = run.output().await;
+    let expect = &example["expect"];
+    let code = expect["exitCode"].as_i64().expect("exitCode");
+    output.expect_code(i32::try_from(code).expect("an exit code"));
+    let result = output.json();
+    for (key, value) in expect["json"].as_object().expect("expect.json") {
+        assert_eq!(&result[key], value, "{name}: {key}\n{output}");
+    }
+    for field in expect["absent"].as_array().into_iter().flatten() {
+        let field = field.as_str().expect("a field name");
+        assert!(result.get(field).is_none(), "{name}: {field}\n{output}");
+    }
+    if let Some(hub) = hub {
+        tab.close().await;
+        hub.stop();
+    }
+}
+
+#[tokio::test]
+async fn sequence_approval() {
+    assert_eq!(sequences("approval.json").await, 7);
+}
+
+#[tokio::test]
+async fn sequence_cancel() {
+    assert_eq!(sequences("cancel.json").await, 2);
+}
+
+#[tokio::test]
+async fn sequence_chunks() {
+    assert_eq!(sequences("chunks.json").await, 3);
+}
+
+#[tokio::test]
+async fn sequence_class() {
+    assert_eq!(sequences("class.json").await, 4);
+}
+
+#[tokio::test]
+async fn sequence_delivery() {
+    assert_eq!(sequences("delivery.json").await, 10);
 }

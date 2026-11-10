@@ -37,6 +37,8 @@ struct Plan {
     help: Option<Value>,
     /// How many first sends the hub refuses as `rate-limited`.
     rate_limited: usize,
+    /// The hub's error objects for the first sends, in order (before `rate_limited`).
+    refusals: Vec<Value>,
     /// The tab's wait between its first reply and the rest.
     delay_ms: u64,
 }
@@ -133,6 +135,15 @@ async fn serve(tcp: TcpStream, plan: Plan, log: Arc<Mutex<Seen>>, host: String) 
                 .await;
             }
             "send" => {
+                if let Some(error) = plan.refusals.get(refused) {
+                    refused += 1;
+                    say(
+                        &mut socket,
+                        json!({ "t": "result", "id": id, "ok": false, "error": error }),
+                    )
+                    .await;
+                    continue;
+                }
                 if refused < plan.rate_limited {
                     refused += 1;
                     say(
@@ -420,6 +431,37 @@ fn rate_limited_sends_are_retried() {
     let (output, seen) = run("rate", plan, &["--json", "tasks.list"]);
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
     assert_eq!(seen.methods, ["status", "send", "send", "send"]);
+}
+
+#[test]
+fn busy_is_not_retried() {
+    let plan = Plan {
+        capabilities: standard_caps(),
+        replies: read_ok(),
+        refusals: vec![json!({ "code": "busy" })],
+        ..Plan::default()
+    };
+    let (output, seen) = run("busy", plan, &["--json", "tasks.list"]);
+    assert_eq!(output.status.code(), Some(4), "{}", text(&output.stderr));
+    assert_eq!(json_of(&output)["code"], "busy");
+    assert_eq!(seen.methods, ["status", "send"]);
+}
+
+#[test]
+fn the_rate_limit_wait_is_5_s_in_all() {
+    // 1 s, then 4.001 s more: each alone fits in 5 s, together they do not. The CLI
+    // waits the first and gives up at the second, without a third send.
+    let limited = |ms: u64| json!({ "code": "rate-limited", "retryAfterMs": ms });
+    let plan = Plan {
+        capabilities: standard_caps(),
+        replies: read_ok(),
+        refusals: vec![limited(1000), limited(4001)],
+        ..Plan::default()
+    };
+    let (output, seen) = run("rate-cap", plan, &["--json", "tasks.list"]);
+    assert_eq!(output.status.code(), Some(4), "{}", text(&output.stderr));
+    assert_eq!(json_of(&output)["code"], "busy");
+    assert_eq!(seen.methods, ["status", "send", "send"]);
 }
 
 #[test]

@@ -72,6 +72,16 @@ fn head(kind: &str, id: &str) -> Map<String, Value> {
     map
 }
 
+/// A reply taken as it is from a fixture (a `sequence/` example's `replies`), with the
+/// request's real `id` in place of the example's; it passes the same door as every
+/// built reply.
+pub fn replay(reply: &Value, id: &str) -> Envelope {
+    assert!(reply.is_object(), "a fixture reply is an object: {reply}");
+    let mut value = reply.clone();
+    value["id"] = json!(id);
+    checked(value)
+}
+
 /// The fields of `received` after `id`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Received {

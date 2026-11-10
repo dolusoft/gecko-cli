@@ -27,6 +27,14 @@ wins. HTTP and WebSocket follow the same rule. Only `http://` proxies are suppor
 | `GECKO_CANCEL_WAIT_MS`       | How long the `cancel` answer is awaited after Ctrl+C                                                                    | 3000           |
 | `GECKO_TRANSPORT`            | `dev`: the development transport is chosen even when the address is not localhost                                       | By the address |
 
+stdin has no single owner: the Ctrl+C hook, `--line -` and `attach -` all read it. A
+test uses one of them per call.
+
+The end-to-end tests (`crates/gecko/tests/e2e.rs`) run the binary through
+`gecko-testkit` (`crates/testkit`). It removes every `GECKO_*` variable from the test's
+environment and keeps the rest, sets `GECKO_CONFIG_DIR` to a directory of its own and
+`NO_COLOR=1`.
+
 ## Development hub hooks
 
 | Variable                | Meaning                                                                                                                                                                                                 | Default                           |

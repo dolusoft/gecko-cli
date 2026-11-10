@@ -1,0 +1,21 @@
+[package]
+name = "gecko-testkit"
+description = "Test support for the gecko CLI: the development hub in its own runtime, a fake Gecko tab and the CLI as a process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# Test support only: a dev-dependency, never in a release build.
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+futures-util.workspace = true
+gecko-dev-hub.workspace = true
+gecko-wire.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+
+[lints]
+workspace = true

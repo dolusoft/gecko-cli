@@ -30,7 +30,7 @@ impl Failure {
 /// class instead (§5.6); this table is only for what the CLI decides by itself.
 pub fn exit_code_of(code: &str) -> u8 {
     match code {
-        "usage" | "unsupported-version" => 2,
+        "usage" | "unsupported-version" | "unknown-command" => 2,
         "not-allowed" | "no-terminal-access" | "untrusted-hub" | "insecure-hub"
         | "approval-dropped" => 3,
         "unreachable" | "connection-lost" | "busy" | "no-binding" | "gone" | "tab-unreachable"
@@ -398,22 +398,97 @@ impl Io<'_> {
 mod tests {
     use super::*;
 
+    /// Every failure code the CLI writes itself, with its exit code. A row changes only
+    /// with a decision: exit codes are part of the contract.
+    const EXIT_CODES: &[(&str, u8)] = &[
+        ("failed", 1),
+        ("usage", 2),
+        ("unsupported-version", 2),
+        ("unknown-command", 2),
+        ("not-allowed", 3),
+        ("no-terminal-access", 3),
+        ("untrusted-hub", 3),
+        ("insecure-hub", 3),
+        ("approval-dropped", 3),
+        ("unreachable", 4),
+        ("connection-lost", 4),
+        ("busy", 4),
+        ("no-binding", 4),
+        ("gone", 4),
+        ("tab-unreachable", 4),
+        ("not-delivered", 4),
+        ("rate-limited", 4),
+        ("too-many-attempts", 4),
+        ("unknown-outcome", 5),
+        ("invalid-code", 6),
+        ("unauthorized", 6),
+        ("revoked", 6),
+        ("cancelled", 130),
+        ("cancel-requested", 130),
+        ("cancelled-before-start", 130),
+    ];
+
+    /// Codes the CLI writes whose exit code is wrong today; each has an ignored test.
+    const WRONG_TODAY: &[&str] = &["too-large"];
+
     #[test]
-    fn exit_codes() {
-        assert_eq!(exit_code_of("usage"), 2);
-        assert_eq!(exit_code_of("not-allowed"), 3);
-        assert_eq!(exit_code_of("unreachable"), 4);
-        assert_eq!(exit_code_of("unknown-outcome"), 5);
-        assert_eq!(exit_code_of("invalid-code"), 6);
-        assert_eq!(exit_code_of("revoked"), 6);
-        assert_eq!(exit_code_of("untrusted-hub"), 3);
-        assert_eq!(exit_code_of("insecure-hub"), 3);
-        assert_eq!(exit_code_of("no-terminal-access"), 3);
-        assert_eq!(exit_code_of("approval-dropped"), 3);
-        assert_eq!(exit_code_of("too-many-attempts"), 4);
-        assert_eq!(exit_code_of("no-binding"), 4);
-        assert_eq!(exit_code_of("cancelled"), 130);
+    fn every_failure_code_has_its_exit_code() {
+        for (code, exit) in EXIT_CODES {
+            assert_eq!(exit_code_of(code), *exit, "{code}");
+        }
+        // Codes from the hub this table does not know.
         assert_eq!(exit_code_of("something-new"), 1);
+        assert_eq!(exit_code_of("not-bound"), 1);
+    }
+
+    /// The string literals that open `Failure::new(` and `Outcome::error(` in `text`.
+    fn codes_written(text: &str) -> Vec<String> {
+        let mut codes = Vec::new();
+        for opener in ["Failure::new(", "Outcome::error("] {
+            for (at, _) in text.match_indices(opener) {
+                let rest = text[at + opener.len()..].trim_start();
+                if let Some(rest) = rest.strip_prefix('"')
+                    && let Some(end) = rest.find('"')
+                {
+                    codes.push(rest[..end].to_owned());
+                }
+            }
+        }
+        codes
+    }
+
+    #[test]
+    fn the_table_has_every_code_the_cli_writes() {
+        assert_eq!(
+            codes_written("Failure::new(\n  \"busy\", x) Outcome::error(code, m, 1)"),
+            ["busy"]
+        );
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut missing = Vec::new();
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            // This module's tests make codes of their own.
+            if path.extension().is_none_or(|ext| ext != "rs") || path.ends_with("output.rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            for code in codes_written(&text) {
+                let known = EXIT_CODES.iter().any(|(c, _)| *c == code)
+                    || WRONG_TODAY.contains(&code.as_str());
+                if !known {
+                    missing.push(format!("{}: {code}", path.display()));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "codes without a row: {missing:?}");
+    }
+
+    /// command-console puts `too-large` in the class `usage` (exit 2), and so did the
+    /// TypeScript CLI; the CLI's own `too-large` (a line over the limits) exits 1.
+    #[test]
+    #[ignore = "too-large exits 1, the contract says 2 (usage); a user-visible change waits for a decision"]
+    fn too_large_is_a_usage_error() {
+        assert_eq!(exit_code_of("too-large"), 2);
     }
 
     #[test]

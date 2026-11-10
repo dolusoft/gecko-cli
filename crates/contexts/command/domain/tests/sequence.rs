@@ -1,14 +1,11 @@
 //! command-console `fixtures/remote/sequence/` (1.7.2 and 1.8.2) against the CLI's run: each
 //! example feeds replies and events in order and checks the exit code and a subset of
-//! the `--json` result. The run is the binary's own module, built here by path; its
-//! clock is a parameter (`Run::on(event, now)`).
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, dead_code)]
+//! the `--json` result. The run is the command domain's state machine; its clock is a
+//! parameter (`Run::on(event, now)`).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-#[path = "../src/run.rs"]
-mod run;
-
+use gecko_command_domain::run::{Event, Run, Step};
 use gecko_wire::reply::{Read, read_value};
-use run::{Event, Run, Step};
 use serde_json::Value;
 
 /// The fields of an example's `tab` this runner knows (1.8.2 `remote/README.md`); a

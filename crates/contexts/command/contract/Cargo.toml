@@ -1,0 +1,15 @@
+[package]
+name = "gecko-command-contract"
+description = "The command context's contract: what a call hands the line and help paths; no I/O"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gecko-kernel.workspace = true
+
+[lints]
+workspace = true

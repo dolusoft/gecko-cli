@@ -1,0 +1,19 @@
+[package]
+name = "gecko-command-domain"
+description = "The command context's rules: the pre-filter, the capability check, a sent request's state machine and the help result; no I/O, no clock"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gecko-hub-protocol.workspace = true
+gecko-kernel.workspace = true
+gecko-wire.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

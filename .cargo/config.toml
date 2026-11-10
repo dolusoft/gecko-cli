@@ -1,6 +1,6 @@
 # The one place the tests find the command-console fixtures: an absolute path, set
 # for every rustc call and read with `env!`, so a crate can move to any depth under
 # `crates/` without a `../../` path to fix. Read by `crates/protocol/wire/tests/fixtures.rs`,
-# `crates/app/tests/sequence.rs` and `crates/testkit/src/fixtures.rs`; the CLI never reads it.
+# `crates/contexts/command/domain/tests/sequence.rs` and `crates/testkit/src/fixtures.rs`; the CLI never reads it.
 [env]
 GECKO_CLI_FIXTURES_DIR = { value = "fixtures", relative = true, force = true }

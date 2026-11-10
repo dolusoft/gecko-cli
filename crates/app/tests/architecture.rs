@@ -10,8 +10,8 @@
 //! This is a gate file: a change to it, to a `clippy.toml` or to the lint tables of the
 //! root `Cargo.toml` is a pull request of its own, with the reason in its description.
 //!
-//! Interim: B0 of the restructuring. The binary's crate is `legacy` until its code has
-//! moved to the bounded contexts; the list of legacy crates only shrinks.
+//! Interim: set up in B0 of the restructuring. The binary's crate was `legacy` until its
+//! code had moved to the bounded contexts (B4); the list of legacy crates only shrinks.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -41,11 +41,14 @@ enum Role {
 
 /// Every workspace crate by package name, with its role.
 const ROLES: &[(&str, Role)] = &[
-    ("gecko", Role::Legacy),
+    ("gecko", Role::App),
     ("gecko-kernel", Role::Kernel),
     ("gecko-wire", Role::Protocol),
     ("gecko-hub-protocol", Role::Protocol),
     ("gecko-hub-client", Role::AdapterLib),
+    ("gecko-binding-contract", Role::Contract("binding")),
+    ("gecko-binding-domain", Role::Domain("binding")),
+    ("gecko-binding-module", Role::Module("binding")),
     ("gecko-command-contract", Role::Contract("command")),
     ("gecko-command-domain", Role::Domain("command")),
     ("gecko-command-module", Role::Module("command")),
@@ -54,8 +57,8 @@ const ROLES: &[(&str, Role)] = &[
 ];
 
 /// The crates allowed in the legacy role. A crate leaves the list when its code has
-/// moved; nothing is added.
-const LEGACY: &[&str] = &["gecko"];
+/// moved; nothing is added. Empty since B4, where the binary became the `app`.
+const LEGACY: &[&str] = &[];
 
 /// The legacy list as it stood at B0. Frozen: [`LEGACY`] must stay inside it, so the
 /// list cannot grow without editing this line too, in a gate pull request.

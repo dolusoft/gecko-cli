@@ -228,6 +228,8 @@ name = "gecko"
 version = "0.3.0"
 dependencies = [
  "futures-util",
+ "gecko-binding-contract",
+ "gecko-binding-module",
  "gecko-command-contract",
  "gecko-command-domain",
  "gecko-command-module",
@@ -237,12 +239,46 @@ dependencies = [
  "gecko-kernel",
  "gecko-testkit",
  "gecko-wire",
- "reqwest",
  "serde",
  "serde_json",
  "terminal_size",
  "tokio",
  "tokio-tungstenite",
+ "url",
+]
+
+[[package]]
+name = "gecko-binding-contract"
+version = "0.3.0"
+dependencies = [
+ "gecko-hub-protocol",
+ "gecko-kernel",
+ "serde",
+]
+
+[[package]]
+name = "gecko-binding-domain"
+version = "0.3.0"
+dependencies = [
+ "gecko-binding-contract",
+ "gecko-hub-protocol",
+ "gecko-kernel",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "gecko-binding-module"
+version = "0.3.0"
+dependencies = [
+ "gecko-binding-contract",
+ "gecko-binding-domain",
+ "gecko-hub-client",
+ "gecko-hub-protocol",
+ "gecko-kernel",
+ "serde",
+ "serde_json",
+ "tokio",
  "url",
 ]
 

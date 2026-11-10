@@ -1,0 +1,23 @@
+[package]
+name = "gecko-binding-module"
+description = "The binding context's use cases: attach, detach and status, with the token file and the hub's HTTP routes as adapters"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gecko-binding-contract.workspace = true
+gecko-binding-domain.workspace = true
+gecko-hub-client.workspace = true
+gecko-hub-protocol.workspace = true
+gecko-kernel.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

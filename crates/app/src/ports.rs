@@ -55,6 +55,19 @@ impl<C, D> Ports<C, D> {
             cli_version: self.cli_version,
         }
     }
+
+    /// What the binding context takes of them, with its token store and hub opener.
+    pub fn binding<'a, S, O>(
+        &'a self,
+        store: &'a S,
+        opener: &'a O,
+    ) -> gecko_binding_contract::Ports<'a, C, S, O> {
+        gecko_binding_contract::Ports {
+            clock: &self.clock,
+            store,
+            opener,
+        }
+    }
 }
 
 #[cfg(test)]

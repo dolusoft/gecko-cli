@@ -1,0 +1,19 @@
+[package]
+name = "gecko-binding-domain"
+description = "The binding context's rules: the attach code and its hub address, the token's lifetime and the status lines; no I/O, no clock"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gecko-binding-contract.workspace = true
+gecko-hub-protocol.workspace = true
+gecko-kernel.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

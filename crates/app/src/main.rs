@@ -8,11 +8,8 @@
 //! and the ports (`ports.rs`, `interrupt.rs`, `output.rs`) are built here.
 
 mod args;
-mod auth;
 mod binding;
-mod code;
 mod command;
-mod config;
 mod format;
 mod interrupt;
 mod output;
@@ -25,7 +22,7 @@ use std::io::Write;
 use std::process::ExitCode;
 
 use args::{Action, ArgError, Options};
-use config::Config;
+use gecko_binding_module::adapters::fs::Config;
 use gecko_hub_client::proxy::ProxyRule;
 use gecko_kernel::{Failure, Reporter, Settings};
 use interrupt::CtrlC;

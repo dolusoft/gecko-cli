@@ -11,8 +11,8 @@ use gecko_command_domain::line::{
 };
 use gecko_command_domain::run::{Event, Run, Step, approx_left, end_of};
 use gecko_hub_protocol::failure::lost_failure;
-use gecko_hub_protocol::hub::{Binding, BindingState, HubStatus};
-use gecko_hub_protocol::{Closed, HubConnection, HubEvent};
+use gecko_hub_protocol::hub::{Binding, BindingState};
+use gecko_hub_protocol::{Closed, HubConnection, HubEvent, Session};
 use gecko_kernel::{Clock, Failure, IdSource, Interrupts, Outcome, Reporter, gone_message};
 use gecko_wire::capabilities::{Capabilities, Effect};
 use gecko_wire::request::{self, Input, fits};
@@ -28,12 +28,10 @@ const NO_APPROVAL_NOTE: &str = "(ran without approval: binding level never-ask)"
 const PROGRESS_AFTER: Duration = Duration::from_millis(700);
 
 /// Sends `input` (its command `name`, from the domain's `precheck`) to the bound tab
-/// on an open connection whose `status` is `status`, and waits for its result. `view`
-/// is `--view`.
-#[allow(clippy::too_many_arguments)]
+/// on an open connection (`session`, whose `status` a stale capability list reads
+/// again), and waits for its result. `view` is `--view`.
 pub async fn run_line<H: HubConnection>(
-    hub: &mut H,
-    status: &mut HubStatus,
+    session: &mut Session<H>,
     ports: &Ports<'_, impl Clock, impl IdSource>,
     input: &Input,
     name: &str,
@@ -41,6 +39,7 @@ pub async fn run_line<H: HubConnection>(
     io: &mut impl Reporter,
     interrupts: &mut impl Interrupts,
 ) -> Result<Outcome, Failure> {
+    let Session { hub, status } = session;
     let mut caps = capabilities_of(live_binding(status)?, ports.cli_version)?;
     match pre_filter(&caps, name) {
         Verdict::Send => {}

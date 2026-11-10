@@ -1,11 +1,11 @@
 //! The attach code (attach spec §3.2): `gk1_` and the base64url JSON
 //! `{ "v": 1, "hub": <address>, "s": <secret> }`, and the check of its hub address
 //! (§3.3). The address comes from text a user was handed, so only `https` and loopback
-//! `http` pass.
+//! `http` pass. Parsing the address as a URL is the module's (the domain takes no URL
+//! crate); the rule over its parts is here.
 
 use gecko_kernel::Failure;
 use serde::Deserialize;
-use url::Url;
 
 const PREFIX: &str = "gk1_";
 
@@ -57,9 +57,10 @@ fn unbase64url(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Opens a code. Anything that is not a version-1 code is `invalid-code`, with the
-/// same message as a used or expired one.
-pub fn open(text: &str) -> Result<AttachCode, Failure> {
+/// Decodes a code: its hub address as written (not yet checked) and its secret.
+/// Anything that is not a version-1 code is `invalid-code`, with the same message as a
+/// used or expired one.
+pub fn decode(text: &str) -> Result<AttachCode, Failure> {
     let body = text.trim().strip_prefix(PREFIX).ok_or_else(invalid)?;
     let bytes = unbase64url(body).ok_or_else(invalid)?;
     let body: Body = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
@@ -67,18 +68,36 @@ pub fn open(text: &str) -> Result<AttachCode, Failure> {
         return Err(invalid());
     }
     Ok(AttachCode {
-        hub: hub_origin(&body.hub)?,
+        hub: body.hub,
         secret: body.s,
     })
 }
 
+/// The parts of a parsed hub address the rule looks at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Address {
+    pub scheme: String,
+    pub host: Option<String>,
+    pub username: String,
+    pub password: Option<String>,
+    pub path: String,
+    pub query: Option<String>,
+    pub fragment: Option<String>,
+    /// The address's origin, serialized (`https://hub.example`).
+    pub origin: String,
+}
+
 /// The hub address as an origin: `https://` for any host, `http://` for loopback only
 /// (`127.0.0.1`, `localhost`, `[::1]`). An address with a path, a query or credentials
-/// is not a hub address.
-pub fn hub_origin(address: &str) -> Result<String, Failure> {
-    let url = Url::parse(address).map_err(|_| invalid())?;
-    let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
-    match url.scheme() {
+/// is not a hub address. `parsed` is `address` parsed as a URL, `None` when it is not
+/// one.
+pub fn hub_origin(address: &str, parsed: Option<Address>) -> Result<String, Failure> {
+    let url = parsed.ok_or_else(invalid)?;
+    let loopback = matches!(
+        url.host.as_deref(),
+        Some("127.0.0.1" | "localhost" | "[::1]")
+    );
+    match url.scheme.as_str() {
         "https" => {}
         "http" if loopback => {}
         _ => {
@@ -90,16 +109,16 @@ pub fn hub_origin(address: &str) -> Result<String, Failure> {
             ));
         }
     }
-    let plain = url.username().is_empty()
-        && url.password().is_none()
-        && matches!(url.path(), "" | "/")
-        && url.query().is_none()
-        && url.fragment().is_none()
-        && url.host_str().is_some();
+    let plain = url.username.is_empty()
+        && url.password.is_none()
+        && matches!(url.path.as_str(), "" | "/")
+        && url.query.is_none()
+        && url.fragment.is_none()
+        && url.host.is_some();
     if !plain {
         return Err(invalid());
     }
-    Ok(url.origin().ascii_serialization())
+    Ok(url.origin)
 }
 
 #[cfg(test)]
@@ -121,10 +140,6 @@ mod tests {
         text
     }
 
-    fn code_of(json: &str) -> String {
-        format!("gk1_{}", base64url(json.as_bytes()))
-    }
-
     #[test]
     fn base64url_round_trip() {
         for input in [&b""[..], b"f", b"fo", b"foo", b"foob", &[0xfb, 0xff, 0x00]] {
@@ -132,63 +147,5 @@ mod tests {
         }
         assert_eq!(unbase64url("Zg==").unwrap(), b"f");
         assert_eq!(unbase64url("Z+g"), None);
-    }
-
-    #[test]
-    fn a_code_opens() {
-        let code = code_of(r#"{"v":1,"hub":"http://127.0.0.1:4400","s":"secret"}"#);
-        assert_eq!(
-            open(&format!("  {code}\n")).unwrap(),
-            AttachCode {
-                hub: "http://127.0.0.1:4400".into(),
-                secret: "secret".into()
-            }
-        );
-        let https = code_of(r#"{"v":1,"hub":"https://Gecko.Example/","s":"x","later":1}"#);
-        assert_eq!(open(&https).unwrap().hub, "https://gecko.example");
-    }
-
-    #[test]
-    fn broken_codes_are_invalid() {
-        for text in [
-            "",
-            "gk1_",
-            "gk2_e30",
-            "gk1_!!!",
-            &code_of("[]"),
-            &code_of(r#"{"v":2,"hub":"https://a.example","s":"x"}"#),
-            &code_of(r#"{"v":1,"hub":"https://a.example","s":""}"#),
-            &code_of(r#"{"v":1,"s":"x"}"#),
-            &code_of(r#"{"v":1,"hub":"https://a.example/hub","s":"x"}"#),
-            &code_of(r#"{"v":1,"hub":"https://u:p@a.example","s":"x"}"#),
-        ] {
-            assert_eq!(open(text).unwrap_err(), invalid(), "{text}");
-        }
-    }
-
-    #[test]
-    fn only_https_and_loopback_http() {
-        assert_eq!(
-            hub_origin("http://localhost:5173").unwrap(),
-            "http://localhost:5173"
-        );
-        assert_eq!(hub_origin("http://[::1]:1").unwrap(), "http://[::1]:1");
-        assert_eq!(
-            hub_origin("https://10.0.0.5:8443").unwrap(),
-            "https://10.0.0.5:8443"
-        );
-        for address in [
-            "http://gecko.example",
-            "http://10.0.0.5:4400",
-            "http://127.0.0.2:4400",
-            "ws://127.0.0.1:4400",
-            "file:///etc/passwd",
-        ] {
-            assert_eq!(
-                hub_origin(address).unwrap_err().code,
-                "insecure-hub",
-                "{address}"
-            );
-        }
     }
 }

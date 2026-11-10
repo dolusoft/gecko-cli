@@ -10,6 +10,9 @@ members = [
     "crates/protocol/wire",
     "crates/protocol/hub",
     "crates/adapters/hub-client",
+    "crates/contexts/binding/contract",
+    "crates/contexts/binding/domain",
+    "crates/contexts/binding/module",
     "crates/contexts/command/contract",
     "crates/contexts/command/domain",
     "crates/contexts/command/module",
@@ -26,6 +29,9 @@ license = "MIT"
 repository = "https://github.com/dolusoft/gecko-cli"
 
 [workspace.dependencies]
+gecko-binding-contract = { path = "crates/contexts/binding/contract" }
+gecko-binding-domain = { path = "crates/contexts/binding/domain" }
+gecko-binding-module = { path = "crates/contexts/binding/module" }
 gecko-command-contract = { path = "crates/contexts/command/contract" }
 gecko-command-domain = { path = "crates/contexts/command/domain" }
 gecko-command-module = { path = "crates/contexts/command/module" }

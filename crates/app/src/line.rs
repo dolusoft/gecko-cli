@@ -7,10 +7,10 @@
 
 use std::time::Duration;
 
-use gecko_hub_client::Transport;
+use gecko_hub_protocol::failure::{call_failure, lost_failure};
 use gecko_hub_protocol::hub::{Binding, BindingState};
-use gecko_hub_protocol::{CallError, Closed, HubEvent};
-use gecko_kernel::{Failure, Outcome, gone_message};
+use gecko_hub_protocol::{CallError, Closed, HubConnection, HubEvent};
+use gecko_kernel::{Clock, Failure, IdSource, Interrupts, Outcome, Reporter, gone_message};
 use gecko_wire::capabilities::{Capabilities, Effect, read_parts, version_below};
 use gecko_wire::reply::{Read, Status, read_value};
 use gecko_wire::request::{self, Input, check_limits, command_name, fits};
@@ -21,30 +21,12 @@ use tokio::time::{Instant, sleep_until};
 use crate::args::Options;
 use crate::config::Config;
 use crate::help;
-use crate::interrupt::Interrupts;
-use crate::output::Io;
+use crate::ports::Ports;
 use crate::run::{Event, Run, Step};
-use crate::session::{self, Session, call_failure, lost_failure, no_binding};
+use crate::session::{self, Session, no_binding};
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The most a send waits for the hub's rate limit in all.
 const RATE_WAIT_MAX: Duration = Duration::from_secs(5);
-/// How long the tab's answer to a cancel is awaited (§6.6).
-const CANCEL_WAIT: Duration = Duration::from_secs(3);
-
-pub(crate) fn millis_env(name: &str, default: Duration) -> Duration {
-    std::env::var(name)
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .map_or(default, Duration::from_millis)
-}
-
-/// A request id: 128 random bits from the standard library's hasher keys.
-pub(crate) fn new_id() -> String {
-    use std::hash::BuildHasher;
-    let random = || std::collections::hash_map::RandomState::new().hash_one(session::now_ms());
-    format!("{:016x}{:016x}", random(), random())
-}
 
 /// The capability list the hub keeps for the binding: `{ revision, parts }`.
 #[derive(Deserialize)]
@@ -59,8 +41,12 @@ fn too_old() -> Failure {
     )
 }
 
-/// The binding's capability list, checked against what this CLI needs (§5.7, §5.8).
-pub(crate) fn capabilities_of(binding: &Binding) -> Result<Capabilities, Failure> {
+/// The binding's capability list, checked against what this CLI (`cli_version`)
+/// needs (§5.7, §5.8).
+pub(crate) fn capabilities_of(
+    binding: &Binding,
+    cli_version: &str,
+) -> Result<Capabilities, Failure> {
     let unreadable = || {
         Failure::new(
             "tab-unreachable",
@@ -79,11 +65,13 @@ pub(crate) fn capabilities_of(binding: &Binding) -> Result<Capabilities, Failure
         return Err(too_old());
     }
     if let Some(min) = &caps.min_cli
-        && version_below(VERSION, min) == Some(true)
+        && version_below(cli_version, min) == Some(true)
     {
         return Err(Failure::new(
             "unsupported-version",
-            format!("this gecko ({VERSION}) is older than the tab supports ({min}); update gecko"),
+            format!(
+                "this gecko ({cli_version}) is older than the tab supports ({min}); update gecko"
+            ),
         ));
     }
     Ok(caps)
@@ -91,7 +79,7 @@ pub(crate) fn capabilities_of(binding: &Binding) -> Result<Capabilities, Failure
 
 /// The binding to send to, or why there is none. A suspended one counts: while its page
 /// comes back, the hub holds the send for a few seconds (attach spec §4).
-pub(crate) fn live_binding(session: &Session) -> Result<&Binding, Failure> {
+pub(crate) fn live_binding<H>(session: &Session<H>) -> Result<&Binding, Failure> {
     match &session.status.binding {
         None => Err(no_binding()),
         Some(b) if b.state == BindingState::Gone => {
@@ -136,13 +124,14 @@ pub fn precheck(input: &Input) -> Result<String, Failure> {
 pub async fn run(
     options: &Options,
     config: &Config,
+    ports: &Ports<impl Clock, impl IdSource>,
     input: Input,
-    io: &mut Io<'_>,
-    interrupts: &mut Interrupts,
+    io: &mut impl Reporter,
+    interrupts: &mut impl Interrupts,
 ) -> Result<Outcome, Failure> {
     let name = precheck(&input)?;
-    let mut session = session::open(config).await?;
-    let result = run_in(options, &mut session, &input, &name, io, interrupts).await;
+    let mut session = session::open(config, ports).await?;
+    let result = run_in(options, ports, &mut session, &input, &name, io, interrupts).await;
     session.hub.close().await;
     result
 }
@@ -150,7 +139,7 @@ pub async fn run(
 /// The note under a server change that ran without the card (attach spec §5.4).
 const NO_APPROVAL_NOTE: &str = "(ran without approval: binding level never-ask)";
 
-async fn refresh(session: &mut Session) -> Result<(), Failure> {
+async fn refresh<H: HubConnection>(session: &mut Session<H>) -> Result<(), Failure> {
     let raw = session
         .hub
         .status()
@@ -165,15 +154,16 @@ async fn refresh(session: &mut Session) -> Result<(), Failure> {
     Ok(())
 }
 
-async fn run_in(
+async fn run_in<H: HubConnection>(
     options: &Options,
-    session: &mut Session,
+    ports: &Ports<impl Clock, impl IdSource>,
+    session: &mut Session<H>,
     input: &Input,
     name: &str,
-    io: &mut Io<'_>,
-    interrupts: &mut Interrupts,
+    io: &mut impl Reporter,
+    interrupts: &mut impl Interrupts,
 ) -> Result<Outcome, Failure> {
-    let mut caps = capabilities_of(live_binding(session)?)?;
+    let mut caps = capabilities_of(live_binding(session)?, ports.cli_version)?;
     if caps.is_sensitive(name) {
         return Err(Failure::new(
             "not-allowed",
@@ -184,12 +174,12 @@ async fn run_in(
     }
     if caps.command(name).is_none() {
         // Only the name goes to the tab, for its suggestion (§5.2 step 3).
-        if let Some(outcome) = unknown_name(session, &caps, name, interrupts).await? {
+        if let Some(outcome) = unknown_name(session, ports, &caps, name, interrupts).await? {
             return Ok(outcome);
         }
         // The tab knows it: the list was stale. Read it once more.
         refresh(session).await?;
-        caps = capabilities_of(live_binding(session)?)?;
+        caps = capabilities_of(live_binding(session)?, ports.cli_version)?;
         if caps.is_sensitive(name) || caps.command(name).is_none() {
             return Ok(Outcome::error(
                 "unknown-command",
@@ -207,7 +197,7 @@ async fn run_in(
     let danger_change = command.danger.is_change();
     let server_change = danger_change && command.effect() == Effect::Server;
     let v = caps.envelope().unwrap_or(1);
-    let id = new_id();
+    let id = ports.ids.new_id();
     let envelope = request::cli_request(v, &id, input, options.view.as_deref());
     if !fits(&envelope) {
         return Err(Failure::new("too-large", "the request is over 16 KB"));
@@ -216,10 +206,10 @@ async fn run_in(
     let stamp = match send(session, &envelope).await {
         Ok(stamp) => stamp,
         Err(Sent::Refused(failure)) => return Err(failure),
-        Err(Sent::Lost(why)) => return Ok(end_of(run.on(Event::Lost(why)))),
-        Err(Sent::Revoked) => return Ok(end_of(run.on(Event::Revoked))),
+        Err(Sent::Lost(why)) => return Ok(end_of(run.on(Event::Lost(why), ports.clock.now_ms()))),
+        Err(Sent::Revoked) => return Ok(end_of(run.on(Event::Revoked, ports.clock.now_ms()))),
     };
-    let delivery = stamp.delivery_deadline();
+    let delivery = stamp.delivery_deadline(ports.settings.delivery_margin);
     let mut cancel_by: Option<Instant> = None;
     let far = Instant::now() + Duration::from_secs(365 * 24 * 3600);
     let mut delivered_checked = false;
@@ -228,8 +218,8 @@ async fn run_in(
     let mut interrupted = false;
     loop {
         let event = tokio::select! {
-            _ = ticker.tick(), if io.progress && !interrupted => {
-                indicate(io, &run, started);
+            _ = ticker.tick(), if io.shows_progress() && !interrupted => {
+                indicate(io, &run, started, ports.clock.now_ms());
                 continue;
             }
             event = session.hub.next_event() => match event {
@@ -263,12 +253,12 @@ async fn run_in(
             }
             () = interrupts.next() => Event::Interrupt,
         };
-        match run.on(event) {
+        match run.on(event, ports.clock.now_ms()) {
             Step::Wait => {}
             Step::Info(text) => io.info(&text),
             Step::Approval(text) => {
-                if io.progress {
-                    indicate(io, &run, started);
+                if io.shows_progress() {
+                    indicate(io, &run, started, ports.clock.now_ms());
                 } else {
                     io.info(&text);
                 }
@@ -279,13 +269,13 @@ async fn run_in(
                 let cancel = request::cancel(v, &id);
                 let sent = session.hub.send(&raw(&cancel)).await.is_ok();
                 cancel_by = Some(if sent {
-                    Instant::now() + millis_env("GECKO_CANCEL_WAIT_MS", CANCEL_WAIT)
+                    Instant::now() + ports.settings.cancel_wait
                 } else {
                     Instant::now()
                 });
             }
             Step::End(outcome) => {
-                if !io.json
+                if !io.json()
                     && (options.view.is_some()
                         || name.to_ascii_lowercase().starts_with("dataview."))
                     && let Some(view) = &outcome.view
@@ -295,7 +285,7 @@ async fn run_in(
                         view.title.as_deref().unwrap_or(&view.id)
                     ));
                 }
-                if !io.json
+                if !io.json()
                     && server_change
                     && outcome.status == "ok"
                     && outcome.approval.as_deref() == Some("none")
@@ -311,10 +301,11 @@ async fn run_in(
 /// After this long a call shows the wait indicator (UX U3).
 const PROGRESS_AFTER: Duration = Duration::from_millis(700);
 
-/// The wait indicator's text: the approval's time left, or how long the call runs.
-fn indicate(io: &mut Io<'_>, run: &Run, started: Instant) {
+/// The wait indicator's text at `now` (ms since the epoch): the approval's time left,
+/// or how long the call runs.
+fn indicate(io: &mut impl Reporter, run: &Run, started: Instant, now: u64) {
     if let Some(expires_at) = run.approval_expires_at() {
-        let left = expires_at - session::now_ms() as f64;
+        let left = expires_at - now as f64;
         io.progress(&format!(
             "Waiting for approval ({}): approve it in the Gecko tab in the browser",
             crate::run::approx_left(left)
@@ -355,9 +346,8 @@ pub(crate) struct Stamp {
 
 impl Stamp {
     /// When an unanswered request counts as not delivered: the hub's window plus
-    /// `GECKO_DELIVERY_MARGIN_MS`.
-    pub fn delivery_deadline(&self) -> Instant {
-        let margin = millis_env("GECKO_DELIVERY_MARGIN_MS", Duration::from_secs(2));
+    /// `margin` (`GECKO_DELIVERY_MARGIN_MS`).
+    pub fn delivery_deadline(&self, margin: Duration) -> Instant {
         Instant::now()
             + Duration::from_millis(self.expires_at.saturating_sub(self.stamped_at))
             + margin
@@ -373,7 +363,10 @@ pub(crate) enum Sent {
 }
 
 /// `send`, retried while the hub answers `rate-limited`; a `busy` is never retried.
-pub(crate) async fn send(session: &mut Session, envelope: &Value) -> Result<Stamp, Sent> {
+pub(crate) async fn send<H: HubConnection>(
+    session: &mut Session<H>,
+    envelope: &Value,
+) -> Result<Stamp, Sent> {
     let body = raw(envelope);
     let mut waited = Duration::ZERO;
     loop {
@@ -422,14 +415,24 @@ pub(crate) async fn send(session: &mut Session, envelope: &Value) -> Result<Stam
 
 /// Asks the tab about a name it does not list: its `unknown-command` and suggestion,
 /// or `None` when the tab does know it.
-async fn unknown_name(
-    session: &mut Session,
+async fn unknown_name<H: HubConnection>(
+    session: &mut Session<H>,
+    ports: &Ports<impl Clock, impl IdSource>,
     caps: &Capabilities,
     name: &str,
-    interrupts: &mut Interrupts,
+    interrupts: &mut impl Interrupts,
 ) -> Result<Option<Outcome>, Failure> {
     let v = caps.envelope().unwrap_or(1);
-    let answer = help::ask(session, v, &[name.to_owned()], true, None, interrupts).await?;
+    let answer = help::ask(
+        session,
+        ports,
+        v,
+        &[name.to_owned()],
+        true,
+        None,
+        interrupts,
+    )
+    .await?;
     if let Some(outcome) = help::ended(&answer) {
         return Ok(Some(outcome));
     }

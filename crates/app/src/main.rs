@@ -3,6 +3,9 @@
 //!
 //! Options, help, version, the dev-hub switch, attach, detach, status, `gecko help`
 //! and the line path (command-console 1.7).
+//!
+//! This file is the composition root: the environment is read here and nowhere else,
+//! and the ports (`ports.rs`, `interrupt.rs`, `output.rs`) are built here.
 
 mod args;
 mod auth;
@@ -15,6 +18,7 @@ mod interrupt;
 mod line;
 mod output;
 mod own;
+mod ports;
 mod run;
 mod session;
 
@@ -24,9 +28,11 @@ use std::process::ExitCode;
 
 use args::{Action, ArgError, Options};
 use config::Config;
-use gecko_kernel::Failure;
-use interrupt::Interrupts;
+use gecko_hub_client::proxy::ProxyRule;
+use gecko_kernel::{Failure, Reporter, Settings};
+use interrupt::CtrlC;
 use output::Io;
+use ports::{Ports, RandomIds, SystemClock};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -158,6 +164,30 @@ fn execute(options: &Options, out: &mut dyn Write, err: &mut dyn Write, job: Job
     code
 }
 
+/// What the CLI reads from its environment (docs/test-hooks.md), read once per call.
+struct Environment {
+    settings: Settings,
+    proxy: ProxyRule,
+    config: Config,
+    /// `NO_COLOR` is set.
+    no_color: bool,
+    /// `GECKO_TEST_INTERRUPT_STDIN=1`.
+    interrupt_stdin: bool,
+}
+
+/// The process environment; the only place the CLI reads it.
+fn environment() -> Environment {
+    let var = |name: &str| std::env::var(name).ok();
+    let var_os = |name: &str| std::env::var_os(name);
+    Environment {
+        settings: Settings::from_lookup(var),
+        proxy: ProxyRule::from_lookup(var),
+        config: Config::from_lookup(var_os),
+        no_color: var_os("NO_COLOR").is_some(),
+        interrupt_stdin: var_os("GECKO_TEST_INTERRUPT_STDIN").is_some_and(|v| v == "1"),
+    }
+}
+
 /// Runs one job on a single-thread runtime and prints its result.
 fn execute_to(
     options: &Options,
@@ -166,7 +196,14 @@ fn execute_to(
     job: Job<'_>,
     to_file: bool,
 ) -> u8 {
-    let mut io = Io::new(out, err, options.json, to_file);
+    let Environment {
+        settings,
+        proxy,
+        config,
+        no_color,
+        interrupt_stdin,
+    } = environment();
+    let mut io = Io::new(out, err, options.json, to_file, settings.test_tty, no_color);
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -174,22 +211,28 @@ fn execute_to(
         Ok(runtime) => runtime,
         Err(error) => return io.fail(&Failure::new("failed", format!("cannot start: {error}"))),
     };
-    let config = Config::from_env();
+    let ports = Ports {
+        settings,
+        clock: SystemClock,
+        ids: RandomIds,
+        cli_version: VERSION,
+        proxy,
+    };
     let is_help = matches!(job, Job::Help { .. });
     let result = runtime.block_on(async {
-        let mut interrupts = Interrupts::listen();
-        let (io, config, interrupts) = (&mut io, &config, &mut interrupts);
+        let mut interrupts = CtrlC::listen(interrupt_stdin);
+        let (io, config, ports, interrupts) = (&mut io, &config, &ports, &mut interrupts);
         match job {
             Job::Own { name, rest } => match name {
-                "attach" => binding::attach(rest, options, config, io, interrupts).await,
-                "detach" => binding::detach(config).await,
-                _ => binding::status(options, config).await,
+                "attach" => binding::attach(rest, options, config, ports, io, interrupts).await,
+                "detach" => binding::detach(config, ports).await,
+                _ => binding::status(options, config, ports).await,
             },
             Job::Line { input } => match input {
-                Ok(input) => line::run(options, config, input, io, interrupts).await,
+                Ok(input) => line::run(options, config, ports, input, io, interrupts).await,
                 Err(failure) => Err(failure),
             },
-            Job::Help { args } => help::run(&args, config, io, interrupts).await,
+            Job::Help { args } => help::run(&args, config, ports, io, interrupts).await,
         }
     });
     // A blocking stdin read (the test interrupt hook) must not hold the process open.

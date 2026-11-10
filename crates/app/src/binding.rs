@@ -6,19 +6,18 @@
 use std::io::IsTerminal;
 use std::time::{Duration, Instant};
 
-use gecko_hub_client::Transport;
-use gecko_hub_client::proxy::ProxyRule;
+use gecko_hub_protocol::HubConnection;
 use gecko_hub_protocol::hub::{Binding, BindingState, User, Where};
-use gecko_kernel::{Failure, Outcome, gone_message};
+use gecko_kernel::{Clock, Failure, IdSource, Interrupts, Outcome, Reporter, gone_message};
 use serde::Serialize;
 
 use crate::args::Options;
 use crate::auth::Auth;
 use crate::code;
 use crate::config::Config;
-use crate::interrupt::Interrupts;
-use crate::output::{Io, interactive};
-use crate::session::{self, now_ms};
+use crate::output::interactive;
+use crate::ports::Ports;
+use crate::session;
 
 /// How long ending the previous binding may take before `attach` goes on without it.
 const OLD_BINDING_WAIT: Duration = Duration::from_secs(5);
@@ -92,15 +91,13 @@ fn untrusted(hub: &str) -> Failure {
 /// Asks once on the terminal whether to trust a new hub address.
 async fn ask_trust(
     hub: &str,
-    io: &mut Io<'_>,
-    interrupts: &mut Interrupts,
+    io: &mut impl Reporter,
+    interrupts: &mut impl Interrupts,
 ) -> Result<bool, Failure> {
     io.clear_progress();
-    let _ = write!(
-        io.err,
+    io.prompt(&format!(
         "{hub} has not been used from this computer. Connect to it? [y/N] "
-    );
-    let _ = io.err.flush();
+    ));
     let answer = tokio::task::spawn_blocking(|| {
         let mut line = String::new();
         std::io::stdin().read_line(&mut line).map(|_| line)
@@ -108,7 +105,7 @@ async fn ask_trust(
     tokio::select! {
         answer = answer => {
             let line = answer.ok().and_then(Result::ok).unwrap_or_default();
-            let _ = writeln!(io.err);
+            io.prompt("\n");
             Ok(matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
         }
         () = interrupts.next() => Err(Failure::new("cancelled", "cancelled")),
@@ -117,12 +114,12 @@ async fn ask_trust(
 
 /// Ends the binding of `config`, if any: the hub's `detach` when it answers in time,
 /// then the token file goes either way.
-async fn end_old_binding(config: &Config) -> bool {
+async fn end_old_binding(config: &Config, ports: &Ports<impl Clock, impl IdSource>) -> bool {
     let Some(old) = config.read_token() else {
         return false;
     };
     let _ = tokio::time::timeout(OLD_BINDING_WAIT, async {
-        if let Ok(mut session) = session::open_with(config, old).await {
+        if let Ok(mut session) = session::open_with(config, old, ports).await {
             let _ = session.hub.detach().await;
             session.hub.close().await;
         }
@@ -136,8 +133,9 @@ pub async fn attach(
     args: &[String],
     options: &Options,
     config: &Config,
-    io: &mut Io<'_>,
-    interrupts: &mut Interrupts,
+    ports: &Ports<impl Clock, impl IdSource>,
+    io: &mut impl Reporter,
+    interrupts: &mut impl Interrupts,
 ) -> Result<Outcome, Failure> {
     let args = attach_args(args)?;
     let from_stdin = args.code == "-";
@@ -151,8 +149,8 @@ pub async fn attach(
     if !config.trusts(&code.hub) {
         let prompt = !options.json
             && !from_stdin
-            && interactive(std::io::stdin().is_terminal())
-            && interactive(std::io::stderr().is_terminal());
+            && interactive(ports.settings.test_tty, std::io::stdin().is_terminal())
+            && interactive(ports.settings.test_tty, std::io::stderr().is_terminal());
         let trusted = if args.trust_hub {
             true
         } else if prompt {
@@ -170,11 +168,11 @@ pub async fn attach(
             Failure::new("failed", format!("cannot save the trusted hub: {error}"))
         })?;
     }
-    let auth = Auth::new(&code.hub, ProxyRule::from_env())?;
-    let token = auth.attach(&code.secret).await?;
+    let auth = Auth::new(&code.hub, ports.proxy.clone())?;
+    let token = auth.attach(&code.secret, &ports.clock).await?;
     // One binding at a time: once the new one stands, the old one and its token end
     // (attach spec §3.4). A refused code leaves the old binding as it was.
-    if end_old_binding(config).await {
+    if end_old_binding(config, ports).await {
         io.info("The previous binding ended");
     }
     config
@@ -197,11 +195,14 @@ pub async fn attach(
     Ok(outcome)
 }
 
-pub async fn detach(config: &Config) -> Result<Outcome, Failure> {
+pub async fn detach(
+    config: &Config,
+    ports: &Ports<impl Clock, impl IdSource>,
+) -> Result<Outcome, Failure> {
     let Some(token) = config.read_token() else {
         return Ok(Outcome::done("There was no binding"));
     };
-    let ended = match session::open_with(config, token).await {
+    let ended = match session::open_with(config, token, ports).await {
         Ok(mut session) => {
             let detached = session.hub.detach().await.is_ok();
             session.hub.close().await;
@@ -391,14 +392,18 @@ pub fn status_outcome(data: &StatusData, json: bool, now: u64) -> Outcome {
 /// Gathers the status. Never binds. No binding: exit 0 and says how to bind; hub
 /// unreachable: exit 4; `busy` (another gecko call holds the grant's one live
 /// connection): the local part and a line that says so, exit 0.
-pub async fn status(options: &Options, config: &Config) -> Result<Outcome, Failure> {
+pub async fn status(
+    options: &Options,
+    config: &Config,
+    ports: &Ports<impl Clock, impl IdSource>,
+) -> Result<Outcome, Failure> {
     let Some(token) = config.read_token() else {
         let data = StatusData {
             user: None,
             hub: None,
             binding: None,
         };
-        return Ok(status_outcome(&data, options.json, now_ms()));
+        return Ok(status_outcome(&data, options.json, ports.clock.now_ms()));
     };
     let user = User {
         id: token.user.id.clone(),
@@ -406,7 +411,7 @@ pub async fn status(options: &Options, config: &Config) -> Result<Outcome, Failu
     };
     let (url, level) = (token.hub.clone(), token.level.clone());
     let started = Instant::now();
-    let data = match session::open_with(config, token).await {
+    let data = match session::open_with(config, token, ports).await {
         Ok(session) => {
             let latency = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             let data = StatusData {
@@ -443,7 +448,7 @@ pub async fn status(options: &Options, config: &Config) -> Result<Outcome, Failu
         },
         Err(failure) => return Err(failure),
     };
-    Ok(status_outcome(&data, options.json, now_ms()))
+    Ok(status_outcome(&data, options.json, ports.clock.now_ms()))
 }
 
 #[cfg(test)]

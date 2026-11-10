@@ -6,6 +6,7 @@
 //! The token file is the user's alone: mode 0600 on POSIX (directory 0700), the user's
 //! ACL only on Windows (`icacls`).
 
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -49,35 +50,46 @@ struct Settings {
 #[derive(Debug, Clone)]
 pub struct Config {
     dir: PathBuf,
+    /// `USERNAME`: the Windows user the token file's ACL is granted to.
+    user: Option<OsString>,
 }
 
 impl Config {
     /// `GECKO_CONFIG_DIR`, else `%APPDATA%\gecko-cli` on Windows and
-    /// `$XDG_CONFIG_HOME/gecko-cli` or `~/.config/gecko-cli` elsewhere.
-    pub fn from_env() -> Config {
-        let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty());
-        if let Some(dir) = var("GECKO_CONFIG_DIR") {
-            return Config::at(dir);
-        }
-        let home = || {
-            var(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
-                .map(PathBuf::from)
-                .unwrap_or_default()
-        };
-        let base = if cfg!(windows) {
-            var("APPDATA")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home().join("AppData").join("Roaming"))
+    /// `$XDG_CONFIG_HOME/gecko-cli` or `~/.config/gecko-cli` elsewhere; the variables
+    /// come from `lookup` (the environment, read in `main`).
+    pub fn from_lookup(lookup: impl Fn(&str) -> Option<OsString>) -> Config {
+        let var = |name: &str| lookup(name).filter(|v| !v.is_empty());
+        let user = var("USERNAME");
+        let dir = if let Some(dir) = var("GECKO_CONFIG_DIR") {
+            PathBuf::from(dir)
         } else {
-            var("XDG_CONFIG_HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home().join(".config"))
+            let home = || {
+                var(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                    .map(PathBuf::from)
+                    .unwrap_or_default()
+            };
+            let base = if cfg!(windows) {
+                var("APPDATA")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| home().join("AppData").join("Roaming"))
+            } else {
+                var("XDG_CONFIG_HOME")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| home().join(".config"))
+            };
+            base.join("gecko-cli")
         };
-        Config::at(base.join("gecko-cli"))
+        Config { dir, user }
     }
 
+    /// The files in `dir`; on Windows the ACL is not narrowed (no user is known).
+    #[cfg(test)]
     pub fn at(dir: impl Into<PathBuf>) -> Config {
-        Config { dir: dir.into() }
+        Config {
+            dir: dir.into(),
+            user: None,
+        }
     }
 
     #[cfg(test)]
@@ -121,7 +133,7 @@ impl Config {
 
     pub fn write_token(&self, token: &StoredToken) -> io::Result<()> {
         self.ensure_dir()?;
-        write_secret(&self.token_path(), &pretty(token)?)
+        write_secret(&self.token_path(), &pretty(token)?, self.user.as_deref())
     }
 
     /// Removes the token; a missing file is fine.
@@ -137,7 +149,7 @@ impl Config {
             return Ok(());
         }
         create_private_dir(&self.dir)?;
-        restrict_windows(&self.dir, true);
+        restrict_windows(&self.dir, true, self.user.as_deref());
         Ok(())
     }
 }
@@ -167,7 +179,7 @@ fn create_private_dir(dir: &Path) -> io::Result<()> {
 }
 
 /// Writes through a temporary file and a rename, so a reader never sees half a token.
-fn write_secret(path: &Path, text: &str) -> io::Result<()> {
+fn write_secret(path: &Path, text: &str, user: Option<&OsStr>) -> io::Result<()> {
     let temp = path.with_extension(format!("json.{}.tmp", std::process::id()));
     let mut options = fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -186,7 +198,7 @@ fn write_secret(path: &Path, text: &str) -> io::Result<()> {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&temp, fs::Permissions::from_mode(0o600))?;
         }
-        restrict_windows(&temp, false);
+        restrict_windows(&temp, false, user);
         fs::rename(&temp, path)
     })();
     if result.is_err() {
@@ -198,14 +210,14 @@ fn write_secret(path: &Path, text: &str) -> io::Result<()> {
 /// Removes inherited rights and grants the current user alone. The file stays in the
 /// user's profile either way; the ACL is a second fence, so a failure is ignored.
 #[cfg(windows)]
-fn restrict_windows(path: &Path, directory: bool) {
+fn restrict_windows(path: &Path, directory: bool, user: Option<&OsStr>) {
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let Some(user) = std::env::var_os("USERNAME").filter(|u| !u.is_empty()) else {
+    let Some(user) = user else {
         return;
     };
-    let mut grant = user;
+    let mut grant = user.to_owned();
     grant.push(if directory { ":(OI)(CI)F" } else { ":F" });
     let _ = Command::new("icacls")
         .arg(path)
@@ -220,7 +232,7 @@ fn restrict_windows(path: &Path, directory: bool) {
 }
 
 #[cfg(not(windows))]
-fn restrict_windows(_path: &Path, _directory: bool) {}
+fn restrict_windows(_path: &Path, _directory: bool, _user: Option<&OsStr>) {}
 
 #[cfg(test)]
 mod tests {

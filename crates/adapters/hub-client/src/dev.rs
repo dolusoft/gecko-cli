@@ -24,7 +24,8 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::{self, Message};
 
 use crate::select::is_local_host;
-use crate::{CallError, Closed, HubError, HubEvent, Transport, net};
+use crate::{CallError, Closed, HubError, HubEvent, net};
+use gecko_hub_protocol::HubConnection;
 
 #[derive(Clone, Debug)]
 pub struct DevOptions {
@@ -238,7 +239,7 @@ impl DevTransport {
     }
 }
 
-impl Transport for DevTransport {
+impl HubConnection for DevTransport {
     async fn status(&mut self) -> Result<Box<RawValue>, CallError> {
         self.invoke("status", None).await
     }

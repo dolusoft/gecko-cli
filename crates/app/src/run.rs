@@ -1,7 +1,8 @@
 //! One request's life after it is sent (§5.2, §5.6; command-console 1.7.0
 //! `fixtures/remote/sequence/`), as a pure state machine: replies, the end of the
 //! connection, the delivery window and Ctrl+C go in, in order; the result comes out.
-//! The driver (`line.rs`) owns the clock and the socket.
+//! The driver (`line.rs`) owns the socket and reads the clock: each event comes with
+//! its time (`Run::on`).
 //!
 //! The CLI's own observation decides between "not run" (4) and "unknown" (5): before
 //! `received` the command's `danger` counts, after it the tab's `change` flag does.
@@ -157,13 +158,14 @@ impl Run {
         ))
     }
 
-    /// Feeds one event; after an `End` every further event is ignored.
-    pub fn on(&mut self, event: Event) -> Step {
+    /// Feeds one event that happened at `now` (ms since the epoch, the CLI's clock);
+    /// after an `End` every further event is ignored.
+    pub fn on(&mut self, event: Event, now: u64) -> Step {
         if self.ended {
             return Step::Wait;
         }
         match event {
-            Event::Reply(reply) => self.on_reply(reply),
+            Event::Reply(reply) => self.on_reply(reply, now),
             Event::Lost(why) => self.lost(&why),
             Event::TabLeft if self.approving && !self.interrupted => self.end(Outcome::error(
                 "approval-dropped",
@@ -213,7 +215,7 @@ impl Run {
         }
     }
 
-    fn on_reply(&mut self, reply: Reply) -> Step {
+    fn on_reply(&mut self, reply: Reply, now: u64) -> Step {
         match reply {
             Reply::Received(received) => {
                 let info = received.hidden.then(|| match received.data_age_ms {
@@ -229,10 +231,9 @@ impl Run {
             Reply::AwaitingApproval { expires_at, .. } => {
                 self.approving = true;
                 self.approval_expires_at = Some(expires_at);
-                let now = crate::session::now_ms() as f64;
                 Step::Approval(format!(
                     "Waiting for approval ({}): approve it in the Gecko tab in the browser.",
-                    approx_left(expires_at - now)
+                    approx_left(expires_at - now as f64)
                 ))
             }
             Reply::Chunk(chunk) => {
@@ -383,15 +384,15 @@ mod tests {
     #[test]
     fn after_the_end_nothing_counts() {
         let mut run = Run::new(false);
-        assert!(matches!(run.on(Event::Lost("x".into())), Step::End(_)));
-        assert_eq!(run.on(Event::Interrupt), Step::Wait);
+        assert!(matches!(run.on(Event::Lost("x".into()), 0), Step::End(_)));
+        assert_eq!(run.on(Event::Interrupt, 0), Step::Wait);
     }
 
     #[test]
     fn second_interrupt_ends() {
         let mut run = Run::new(false);
-        assert_eq!(run.on(Event::Interrupt), Step::SendCancel);
-        let Step::End(outcome) = run.on(Event::Interrupt) else {
+        assert_eq!(run.on(Event::Interrupt, 0), Step::SendCancel);
+        let Step::End(outcome) = run.on(Event::Interrupt, 0) else {
             panic!()
         };
         assert_eq!((outcome.status, outcome.exit()), ("cancelled", 130));
@@ -400,11 +401,14 @@ mod tests {
     #[test]
     fn a_reload_drops_an_open_approval_card() {
         let mut run = Run::new(true);
-        run.on(Event::Reply(Reply::AwaitingApproval {
-            id: "r".into(),
-            expires_at: 1.0,
-        }));
-        let Step::End(outcome) = run.on(Event::TabLeft) else {
+        run.on(
+            Event::Reply(Reply::AwaitingApproval {
+                id: "r".into(),
+                expires_at: 1.0,
+            }),
+            0,
+        );
+        let Step::End(outcome) = run.on(Event::TabLeft, 0) else {
             panic!()
         };
         assert_eq!(
@@ -413,7 +417,7 @@ mod tests {
         );
         // Without a card it is a lost connection: a read is safe to run again.
         let mut read = Run::new(false);
-        let Step::End(outcome) = read.on(Event::TabLeft) else {
+        let Step::End(outcome) = read.on(Event::TabLeft, 0) else {
             panic!()
         };
         assert_eq!(outcome.exit(), 4);
@@ -440,7 +444,8 @@ mod tests {
             help: None,
             approval: Some("card".into()),
         };
-        let Step::End(outcome) = run.on(Event::Reply(Reply::Finished(Box::new(finished)))) else {
+        let Step::End(outcome) = run.on(Event::Reply(Reply::Finished(Box::new(finished))), 0)
+        else {
             panic!()
         };
         assert_eq!(outcome.approval.as_deref(), Some("card"));

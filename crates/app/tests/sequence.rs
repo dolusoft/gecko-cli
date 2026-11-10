@@ -1,26 +1,11 @@
 //! command-console `fixtures/remote/sequence/` (1.7.2 and 1.8.2) against the CLI's run: each
 //! example feeds replies and events in order and checks the exit code and a subset of
-//! the `--json` result. The run is the binary's own module, built here by path.
+//! the `--json` result. The run is the binary's own module, built here by path; its
+//! clock is a parameter (`Run::on(event, now)`).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, dead_code)]
 
-#[path = "../src/format.rs"]
-mod format;
-#[path = "../src/output.rs"]
-mod output;
 #[path = "../src/run.rs"]
 mod run;
-mod session {
-    use std::cell::Cell;
-
-    thread_local! {
-        /// The run's clock, which an example with `tab.expire` moves past the card.
-        pub static NOW: Cell<u64> = const { Cell::new(0) };
-    }
-
-    pub fn now_ms() -> u64 {
-        NOW.with(Cell::get)
-    }
-}
 
 use gecko_wire::reply::{Read, read_value};
 use run::{Event, Run, Step};
@@ -31,7 +16,8 @@ use serde_json::Value;
 const TAB_FIELDS: [&str; 5] = ["level", "command", "summary", "approve", "expire"];
 
 fn feed(example: &Value) -> gecko_kernel::Outcome {
-    session::NOW.with(|now| now.set(0));
+    // The run's clock, which an example with `tab.expire` moves past the card.
+    let mut now = 0;
     if let Some(tab) = example.get("tab").and_then(Value::as_object) {
         for key in tab.keys() {
             assert!(
@@ -52,7 +38,7 @@ fn feed(example: &Value) -> gecko_kernel::Outcome {
             let end = run
                 .approval_expires_at()
                 .unwrap_or_else(|| panic!("{}: expire without a card", example["name"]));
-            session::NOW.with(|now| now.set(end as u64 + 1));
+            now = end as u64 + 1;
         }
         let event = match item.get("event").and_then(Value::as_str) {
             Some("connection-lost") => Event::Lost("the hub connection was lost".into()),
@@ -64,13 +50,13 @@ fn feed(example: &Value) -> gecko_kernel::Outcome {
                 other => panic!("{}: {other:?}", example["name"]),
             },
         };
-        match run.on(event) {
+        match run.on(event, now) {
             Step::End(outcome) => return *outcome,
             Step::Wait | Step::Info(_) | Step::Approval(_) | Step::SendCancel => {}
         }
     }
     // Ctrl+C sent a cancel; the wait for its answer ran out.
-    match run.on(Event::CancelWaitOver) {
+    match run.on(Event::CancelWaitOver, now) {
         Step::End(outcome) => *outcome,
         other => panic!("{}: no end ({other:?})", example["name"]),
     }

@@ -1,0 +1,74 @@
+[
+  {
+    "code": "invalid-args",
+    "class": "usage"
+  },
+  {
+    "code": "unknown-command",
+    "class": "usage"
+  },
+  {
+    "code": "not-allowed",
+    "class": "denied"
+  },
+  {
+    "code": "target-not-found",
+    "class": "failed"
+  },
+  {
+    "code": "id-conflict",
+    "class": "failed"
+  },
+  {
+    "code": "unsupported-version",
+    "class": "usage"
+  },
+  {
+    "code": "too-large",
+    "class": "usage"
+  },
+  {
+    "code": "busy",
+    "class": "not-run"
+  },
+  {
+    "code": "timeout",
+    "class": "failed"
+  },
+  {
+    "code": "failed",
+    "class": "failed"
+  },
+  {
+    "code": "connection-lost",
+    "class": "not-run"
+  },
+  {
+    "code": "cancelled",
+    "class": "cancelled"
+  },
+  {
+    "code": "expired",
+    "class": "not-run"
+  },
+  {
+    "code": "clock-skew",
+    "class": "not-run"
+  },
+  {
+    "code": "not-delivered",
+    "class": "not-run"
+  },
+  {
+    "code": "tab-unreachable",
+    "class": "not-run"
+  },
+  {
+    "code": "gone",
+    "class": "not-run"
+  },
+  {
+    "code": "unknown-outcome",
+    "class": "unknown"
+  }
+]

@@ -1,0 +1,366 @@
+[
+  {
+    "name": "read-lost-before-received",
+    "danger": "read",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.list"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "event": "connection-lost"
+      }
+    ],
+    "expect": {
+      "exitCode": 4,
+      "json": {
+        "status": "error",
+        "complete": true
+      }
+    }
+  },
+  {
+    "name": "change-lost-before-received",
+    "danger": "change",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.stop", "--id", "8812", "--yes"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "event": "connection-lost"
+      }
+    ],
+    "expect": {
+      "exitCode": 5,
+      "json": {
+        "status": "unknown",
+        "complete": false
+      }
+    }
+  },
+  {
+    "name": "read-timeout-before-received",
+    "danger": "read",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.list"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "event": "timeout"
+      }
+    ],
+    "expect": {
+      "exitCode": 4,
+      "json": {
+        "status": "error",
+        "complete": true
+      }
+    }
+  },
+  {
+    "name": "change-timeout-before-received",
+    "danger": "change",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.stop", "--id", "8812", "--yes"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "event": "timeout"
+      }
+    ],
+    "expect": {
+      "exitCode": 5,
+      "json": {
+        "status": "unknown",
+        "complete": false
+      }
+    }
+  },
+  {
+    "name": "read-lost-after-received",
+    "danger": "read",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.list"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": false,
+        "viewRelevant": false
+      },
+      {
+        "event": "connection-lost"
+      }
+    ],
+    "expect": {
+      "exitCode": 4,
+      "json": {
+        "status": "error",
+        "complete": true
+      }
+    }
+  },
+  {
+    "name": "change-lost-after-received",
+    "danger": "change",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.stop", "--id", "8812", "--yes"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": true,
+        "viewRelevant": false
+      },
+      {
+        "event": "connection-lost"
+      }
+    ],
+    "expect": {
+      "exitCode": 5,
+      "json": {
+        "status": "unknown",
+        "complete": false
+      }
+    }
+  },
+  {
+    "name": "not-run-before-received",
+    "danger": "change",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.stop", "--id", "8812", "--yes"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": {
+          "status": "error",
+          "code": "busy",
+          "class": "not-run"
+        },
+        "chunks": 0,
+        "bytes": 0
+      }
+    ],
+    "expect": {
+      "exitCode": 4,
+      "json": {
+        "status": "error",
+        "code": "busy",
+        "complete": true
+      }
+    }
+  },
+  {
+    "name": "not-run-after-change-received",
+    "danger": "change",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.stop", "--id", "8812", "--yes"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": true,
+        "viewRelevant": false
+      },
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": {
+          "status": "error",
+          "code": "expired",
+          "class": "not-run"
+        },
+        "chunks": 0,
+        "bytes": 0
+      }
+    ],
+    "expect": {
+      "exitCode": 5,
+      "json": {
+        "status": "unknown",
+        "complete": false
+      }
+    }
+  },
+  {
+    "name": "change-preview-lost-after-received",
+    "danger": "change",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.stop", "--id", "8812"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": false,
+        "viewRelevant": false
+      },
+      {
+        "event": "connection-lost"
+      }
+    ],
+    "expect": {
+      "exitCode": 4,
+      "json": {
+        "status": "error",
+        "complete": true
+      }
+    }
+  },
+  {
+    "name": "change-preview-not-run-after-received",
+    "danger": "change",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.stop", "--id", "8812"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": false,
+        "viewRelevant": false
+      },
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": {
+          "status": "error",
+          "code": "busy",
+          "class": "not-run"
+        },
+        "chunks": 0,
+        "bytes": 0
+      }
+    ],
+    "expect": {
+      "exitCode": 4,
+      "json": {
+        "status": "error",
+        "code": "busy",
+        "complete": true
+      }
+    }
+  }
+]

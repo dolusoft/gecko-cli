@@ -1,0 +1,264 @@
+{
+  "commands": [
+    {
+      "name": "set",
+      "aliases": ["put"],
+      "danger": "change"
+    },
+    {
+      "name": "tasks.list",
+      "aliases": [],
+      "danger": "read"
+    },
+    {
+      "name": "login",
+      "aliases": ["signin"],
+      "danger": "change",
+      "sensitive": true
+    }
+  ],
+  "rows": [
+    {
+      "name": "lower",
+      "input": {
+        "line": "set --key a"
+      },
+      "cli": {
+        "name": "set"
+      },
+      "tab": {
+        "name": "set"
+      }
+    },
+    {
+      "name": "title-case",
+      "input": {
+        "line": "Set --key a"
+      },
+      "cli": {
+        "name": "Set"
+      },
+      "tab": {
+        "name": "set"
+      }
+    },
+    {
+      "name": "upper-case-argv",
+      "input": {
+        "argv": ["SET", "--key", "a"]
+      },
+      "cli": {
+        "name": "SET"
+      },
+      "tab": {
+        "name": "set"
+      }
+    },
+    {
+      "name": "alias",
+      "input": {
+        "line": "put --key a"
+      },
+      "cli": {
+        "name": "put"
+      },
+      "tab": {
+        "name": "set"
+      }
+    },
+    {
+      "name": "dotted",
+      "input": {
+        "argv": ["tasks.list"]
+      },
+      "cli": {
+        "name": "tasks.list"
+      },
+      "tab": {
+        "name": "tasks.list"
+      }
+    },
+    {
+      "name": "leading-space",
+      "input": {
+        "line": "  set --key a"
+      },
+      "cli": {
+        "name": "set"
+      },
+      "tab": {
+        "name": "set"
+      }
+    },
+    {
+      "name": "end-tab",
+      "input": {
+        "line": "set\t--key a"
+      },
+      "cli": {
+        "name": "set"
+      },
+      "tab": {
+        "name": "set"
+      }
+    },
+    {
+      "name": "end-ufeff",
+      "input": {
+        "line": "set﻿--key a"
+      },
+      "cli": {
+        "name": "set"
+      },
+      "tab": {
+        "name": "set"
+      }
+    },
+    {
+      "name": "end-u00a0",
+      "input": {
+        "line": "set --key a"
+      },
+      "cli": {
+        "name": "set"
+      },
+      "tab": {
+        "name": "set"
+      }
+    },
+    {
+      "name": "end-u2028",
+      "input": {
+        "line": "set --key a"
+      },
+      "cli": {
+        "name": "set"
+      },
+      "tab": {
+        "name": "set"
+      }
+    },
+    {
+      "name": "u0085-is-not-space",
+      "input": {
+        "line": "set--key a"
+      },
+      "cli": {
+        "refuse": "name"
+      },
+      "tab": {
+        "refuse": "invalid-args"
+      }
+    },
+    {
+      "name": "quoted-name",
+      "input": {
+        "line": "\"set\" --key a"
+      },
+      "cli": {
+        "refuse": "name"
+      },
+      "tab": {
+        "refuse": "invalid-args"
+      }
+    },
+    {
+      "name": "escaped-name",
+      "input": {
+        "line": "s\\et --key a"
+      },
+      "cli": {
+        "refuse": "name"
+      },
+      "tab": {
+        "refuse": "invalid-args"
+      }
+    },
+    {
+      "name": "digit-first",
+      "input": {
+        "argv": ["1set"]
+      },
+      "cli": {
+        "refuse": "name"
+      },
+      "tab": {
+        "refuse": "invalid-args"
+      }
+    },
+    {
+      "name": "empty-line",
+      "input": {
+        "line": ""
+      },
+      "cli": {
+        "refuse": "name"
+      },
+      "tab": {
+        "refuse": "invalid-args"
+      }
+    },
+    {
+      "name": "blank-line",
+      "input": {
+        "line": " \t "
+      },
+      "cli": {
+        "refuse": "name"
+      },
+      "tab": {
+        "refuse": "invalid-args"
+      }
+    },
+    {
+      "name": "space-in-argv-name",
+      "input": {
+        "argv": ["set --key a"]
+      },
+      "cli": {
+        "refuse": "name"
+      },
+      "tab": {
+        "refuse": "invalid-args"
+      }
+    },
+    {
+      "name": "unknown",
+      "input": {
+        "argv": ["nosuch"]
+      },
+      "cli": {
+        "name": "nosuch"
+      },
+      "tab": {
+        "refuse": "unknown-command"
+      }
+    },
+    {
+      "name": "sensitive-upper",
+      "input": {
+        "line": "LOGIN secret"
+      },
+      "cli": {
+        "refuse": "sensitive"
+      },
+      "tab": {
+        "refuse": "not-allowed"
+      },
+      "sensitive": true
+    },
+    {
+      "name": "sensitive-alias-argv",
+      "input": {
+        "argv": ["SignIn", "secret"]
+      },
+      "cli": {
+        "refuse": "sensitive"
+      },
+      "tab": {
+        "refuse": "not-allowed"
+      },
+      "sensitive": true
+    }
+  ]
+}

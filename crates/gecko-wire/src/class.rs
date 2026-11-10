@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 /// `class` of a failed result (§5.6). Exit codes: failed 1, usage 2, denied 3,
 /// not-run 4, unknown 5, cancelled 1 (K3). An unknown value exits with 1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ErrorClass {
     Failed,
@@ -30,7 +30,7 @@ impl ErrorClass {
 }
 
 /// `danger` of a command. An unknown value counts as `change` (§5.7 rule 4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Danger {
     Read,

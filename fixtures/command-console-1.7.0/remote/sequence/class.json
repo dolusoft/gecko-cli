@@ -1,0 +1,145 @@
+[
+  {
+    "name": "unknown-class",
+    "danger": "read",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.list"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": false,
+        "viewRelevant": false
+      },
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": {
+          "status": "error",
+          "code": "busy",
+          "class": "throttled"
+        },
+        "chunks": 0,
+        "bytes": 0
+      }
+    ],
+    "expect": {
+      "exitCode": 1,
+      "json": {
+        "status": "error",
+        "code": "busy",
+        "complete": true
+      }
+    }
+  },
+  {
+    "name": "missing-class",
+    "danger": "read",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.list"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": false,
+        "viewRelevant": false
+      },
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": {
+          "status": "error",
+          "code": "busy"
+        },
+        "chunks": 0,
+        "bytes": 0
+      }
+    ],
+    "expect": {
+      "exitCode": 1,
+      "json": {
+        "status": "error",
+        "code": "busy",
+        "complete": true
+      }
+    }
+  },
+  {
+    "name": "cancelled-in-tab",
+    "danger": "read",
+    "request": {
+      "v": 1,
+      "kind": "cli-request",
+      "id": "r1",
+      "argv": ["tasks.list"],
+      "origin": {
+        "kind": "cli",
+        "grantId": "g1",
+        "bindingId": "b1"
+      },
+      "stampedAt": 1000,
+      "expiresAt": 31000
+    },
+    "replies": [
+      {
+        "v": 1,
+        "kind": "received",
+        "id": "r1",
+        "hidden": false,
+        "dataAgeMs": null,
+        "change": false,
+        "viewRelevant": false
+      },
+      {
+        "v": 1,
+        "kind": "finished",
+        "id": "r1",
+        "outcome": {
+          "status": "error",
+          "code": "cancelled",
+          "class": "cancelled"
+        },
+        "chunks": 0,
+        "bytes": 0
+      }
+    ],
+    "expect": {
+      "exitCode": 1,
+      "json": {
+        "status": "error",
+        "code": "cancelled",
+        "complete": true
+      }
+    }
+  }
+]

@@ -1,0 +1,21 @@
+# Trial of the `signalr-client` crate against tests/signalr-hub (docs/signalr-trial.md).
+# Not part of the product; kept so the measurement can be repeated.
+[package]
+name = "signalr-crate-trial"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+signalr-client = "=0.3.2"
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"
+
+# Standalone: not a member of the repo workspace.
+[workspace]

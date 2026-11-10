@@ -246,7 +246,7 @@ gecko-cli/
 | ASCII JSON | Özel yazıcı: UTF-16 birimleriyle `\uXXXX`, BMP dışı vekil çift, U+007F kaçışlı | Fixture'a emoji satırı (F31)                                                                                                |
 | Argüman    | `std::env::args_os`, elle ayrıştırma                                           | Geçersiz Unicode'da çökmez (F31)                                                                                            |
 | Ad kalıbı  | elle bayt denetimi                                                             | `regex` yok                                                                                                                 |
-| SignalR    | §7.4 denemesine göre                                                           |                                                                                                                             |
+| SignalR    | Elle yazılmış dar istemci (`tokio-tungstenite` üstünde)                        | §7.4 denemesi, [signalr-trial.md](signalr-trial.md). TLS akışı kendimiz açarız; HTTP ile aynı `rustls` yapılandırması       |
 
 ### 7.4 SignalR (A14, F29)
 
@@ -259,6 +259,8 @@ Kullanım dar (çağrı başına tek kısa bağlantı, JSON, WebSocket, akış y
 - Sınananlar: `negotiate` (yönlendirme `url` + `accessToken` dahil) ve `skipNegotiation`; yükseltmede `Authorization` başlığı; el sıkışma `error` alanı ve ilk mesajlarla aynı çerçevede gelmesi; tek WebSocket mesajında çok kayıt; 2 dk boşta bekleme ve `Ping`; `Close` (`error`, `allowReconnect`); `Completion` hatası; sunucunun sonuç bekleyen çağrısı; tanınmayan mesaj tipleri (8, 9) yok sayılır; sunucu taraflı kapatma.
 - **Yeniden bağlanmada komut otomatik tekrar gönderilmez.**
 - Desteklenmeyenler açıkça yazılır: MessagePack, long polling, SSE, stateful reconnect, akış.
+
+**Sonuç (2026-11-10, [signalr-trial.md](signalr-trial.md)):** elle yazılmış dar istemci seçildi. `signalr-client` token'ı WebSocket adresine `access_token=` olarak koyduğu için hub'a bağlanamadı; ayrıca `skipNegotiation`, `Close` nedeni, istemci `Ping`'i ve el sıkışma hatası onda yok. Elle istemci yukarıdaki her maddeyi geçti (9 birim, 12 entegrasyon testi, CI'da Windows ve Ubuntu). Kapanış nedenleri `Closed::{Unauthorized, Busy, Revoked, Handshake, Server, ServerTimeout, Transport, Local}`; hub sonucu `{ ok, value | error }` ayrı bir adımda çözülür. İstemci adım 4b'de `gecko-hub-client`'e taşınır.
 
 ### 7.5 Dağıtım (F33)
 
@@ -286,7 +288,7 @@ Kullanım dar (çağrı başına tek kısa bağlantı, JSON, WebSocket, akış y
 
 **Adım 3 — gecko-cli (TypeScript):** yeni özellikleri kullanır, B1–B18 kodunu siler, sözleşme testleri ve [FARK] satırları güncellenir. Rust'ın taşıyacağı davranışın son referansı. Test yardımcıları `tests/support/`'a taşınır.
 
-**Adım 4a — SignalR denemesi** (§7.4). `Transport` trait'inin biçimini belirler; Rust işinden önce.
+**Adım 4a — SignalR denemesi** (§7.4). `Transport` trait'inin biçimini belirler; Rust işinden önce. **Yapıldı** (2026-11-10): elle yazılmış dar istemci, [signalr-trial.md](signalr-trial.md).
 
 **Adım 4b — Rust CLI**, mevcut Node hub'ına karşı: sözleşme testleri, argüman matrisi (DC-3), ölçümler.
 

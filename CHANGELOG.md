@@ -1,12 +1,16 @@
 # Changelog
 
-Nothing has been released yet.
+## 0.3.0
 
-## Unreleased
+The first release, and the first Rust build. The hosted Gecko hub is not available yet:
+this release works with the local development hub only.
 
-- The CLI is being rewritten in Rust (`crates/`). The Rust binary signs in, binds a tab,
-  shows `gecko status`, sends lines to the tab, prints the tab's help and formats results
-  as tables. It speaks command-console 1.7.0 and works against the development hub only.
+- Binaries for Windows (x64, ARM64), Linux (x64, ARM64, static) and macOS (Apple silicon,
+  Intel), with `SHA256SUMS`. `install.ps1` and `install.sh` download the binary for your
+  machine, check its SHA-256 and put it on your PATH.
+- The CLI is rewritten in Rust (`crates/`). It signs in, binds a tab, shows
+  `gecko status`, sends lines to the tab, prints the tab's help and formats results as
+  tables. It speaks command-console 1.7.
 - `gecko dev-hub` runs from the Rust binary: the same hub as the Node one, checked by
   the same contract specs. Release builds leave it out.
 - A narrow SignalR client for the hosted hub, tested against a small ASP.NET Core hub

@@ -225,7 +225,7 @@ dependencies = [
 
 [[package]]
 name = "gecko"
-version = "0.3.0-dev.0"
+version = "0.3.0"
 dependencies = [
  "futures-util",
  "gecko-dev-hub",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-dev-hub"
-version = "0.3.0-dev.0"
+version = "0.3.0"
 dependencies = [
  "futures-util",
  "getrandom 0.4.3",
@@ -256,7 +256,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-hub-client"
-version = "0.3.0-dev.0"
+version = "0.3.0"
 dependencies = [
  "futures-util",
  "percent-encoding",
@@ -274,7 +274,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-wire"
-version = "0.3.0-dev.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",

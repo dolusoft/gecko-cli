@@ -30,7 +30,7 @@ wins. HTTP and WebSocket follow the same rule. Only `http://` proxies are suppor
 stdin has no single owner: the Ctrl+C hook, `--line -` and `attach -` all read it. A
 test uses one of them per call.
 
-The end-to-end tests (`crates/gecko/tests/e2e.rs`) run the binary through
+The end-to-end tests (`crates/app/tests/e2e.rs`) run the binary through
 `gecko-testkit` (`crates/testkit`). It removes every `GECKO_*` variable from the test's
 environment and keeps the rest, sets `GECKO_CONFIG_DIR` to a directory of its own and
 `NO_COLOR=1`.

@@ -88,9 +88,11 @@ fn contains(whole: &Value, subset: &Value) -> bool {
 
 /// Runs every example of one fixture folder; returns how many ran.
 fn sequences_of(version: &str) -> usize {
-    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
-        "../../fixtures/command-console-{version}/remote/sequence"
-    ));
+    let dir = std::path::PathBuf::from(env!(
+        "GECKO_CLI_FIXTURES_DIR",
+        "set in .cargo/config.toml; run cargo inside the repository"
+    ))
+    .join(format!("command-console-{version}/remote/sequence"));
     let mut count = 0;
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();

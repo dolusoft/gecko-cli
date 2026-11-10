@@ -9,11 +9,13 @@ pub const VERSION: &str = "1.8.2";
 
 /// One fixture file of `remote/`, such as `valid/replies.json`.
 pub fn fixture(version: &str, file: &str) -> Value {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures")
-        .join(format!("command-console-{version}"))
-        .join("remote")
-        .join(file);
+    let path = PathBuf::from(env!(
+        "GECKO_CLI_FIXTURES_DIR",
+        "set in .cargo/config.toml; run cargo inside the repository"
+    ))
+    .join(format!("command-console-{version}"))
+    .join("remote")
+    .join(file);
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     serde_json::from_str(&text).unwrap_or_else(|error| panic!("{}: {error}", path.display()))

@@ -1,7 +1,16 @@
 # Rust workspace of the gecko CLI (spec §7).
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+# An explicit list: the glob `crates/*` breaks on nested folders
+# (`crates/protocol/wire`). The architecture test (`crates/app/tests/architecture.rs`)
+# fails on a crate under `crates/` that is not a member.
+members = [
+    "crates/app",
+    "crates/protocol/wire",
+    "crates/adapters/hub-client",
+    "crates/dev-hub",
+    "crates/testkit",
+]
 
 [workspace.package]
 version = "0.3.0"
@@ -12,9 +21,9 @@ license = "MIT"
 repository = "https://github.com/dolusoft/gecko-cli"
 
 [workspace.dependencies]
-gecko-dev-hub = { path = "crates/gecko-dev-hub" }
-gecko-hub-client = { path = "crates/gecko-hub-client" }
-gecko-wire = { path = "crates/gecko-wire" }
+gecko-dev-hub = { path = "crates/dev-hub" }
+gecko-hub-client = { path = "crates/adapters/hub-client" }
+gecko-wire = { path = "crates/protocol/wire" }
 # Test support; a dev-dependency only, never in a release build.
 gecko-testkit = { path = "crates/testkit" }
 serde = { version = "1", features = ["derive"] }

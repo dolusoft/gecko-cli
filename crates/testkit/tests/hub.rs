@@ -3,7 +3,7 @@
 //! each row of the attach spec's §3.4, the reload of §4, the held `send`, the grant that
 //! ends with its binding, CORS, the checks of what a tab publishes and sends, the
 //! isolation of tabs, the stamp, and the one live CLI call per grant.
-//! `crates/gecko/tests/e2e.rs` runs the real CLI against this hub.
+//! `crates/app/tests/e2e.rs` runs the real CLI against this hub.
 //!
 //! These tests live in the testkit's package, not in `gecko-dev-hub`'s: the testkit
 //! depends on the hub, so a dev-dependency of the hub on the testkit would close a

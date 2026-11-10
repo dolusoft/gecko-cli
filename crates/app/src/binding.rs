@@ -5,8 +5,7 @@
 
 use std::io::IsTerminal;
 
-use gecko_binding_contract::{AttachRequest, HubOpener, StoredToken, TrustPrompt};
-use gecko_binding_module::adapters::fs::Config;
+use gecko_binding_contract::{AttachRequest, HubOpener, StoredToken, TokenStore, TrustPrompt};
 use gecko_hub_client::dev::DevTransport;
 use gecko_hub_protocol::Session;
 use gecko_kernel::{Clock, Failure, IdSource, Interrupts, Outcome, Reporter};
@@ -69,23 +68,23 @@ impl TrustPrompt for StdinPrompt {
 
 /// Opens the call's hub connection with a token (`session::open_with`).
 #[derive(Debug)]
-pub struct Opener<'a, C, D> {
-    pub config: &'a Config,
+pub struct Opener<'a, S, C, D> {
+    pub store: &'a S,
     pub ports: &'a Ports<C, D>,
 }
 
-impl<C: Clock, D: IdSource> HubOpener for Opener<'_, C, D> {
+impl<S: TokenStore, C: Clock, D: IdSource> HubOpener for Opener<'_, S, C, D> {
     type Hub = DevTransport;
 
     async fn open_with(&self, token: StoredToken) -> Result<Session<DevTransport>, Failure> {
-        session::open_with(self.config, token, self.ports).await
+        session::open_with(self.store, token, self.ports).await
     }
 }
 
 pub async fn attach(
     args: &[String],
     options: &Options,
-    config: &Config,
+    store: &impl TokenStore,
     ports: &Ports<impl Clock, impl IdSource>,
     io: &mut impl Reporter,
     interrupts: &mut impl Interrupts,
@@ -106,8 +105,8 @@ pub async fn attach(
         terminal: interactive(test_tty, std::io::stdin().is_terminal())
             && interactive(test_tty, std::io::stderr().is_terminal()),
     };
-    let opener = Opener { config, ports };
-    let binding = ports.binding(config, &opener);
+    let opener = Opener { store, ports };
+    let binding = ports.binding(store, &opener);
     gecko_binding_module::attach(
         &request,
         &binding,
@@ -120,20 +119,20 @@ pub async fn attach(
 }
 
 pub async fn detach(
-    config: &Config,
+    store: &impl TokenStore,
     ports: &Ports<impl Clock, impl IdSource>,
 ) -> Result<Outcome, Failure> {
-    let opener = Opener { config, ports };
-    gecko_binding_module::detach(&ports.binding(config, &opener)).await
+    let opener = Opener { store, ports };
+    gecko_binding_module::detach(&ports.binding(store, &opener)).await
 }
 
 pub async fn status(
     options: &Options,
-    config: &Config,
+    store: &impl TokenStore,
     ports: &Ports<impl Clock, impl IdSource>,
 ) -> Result<Outcome, Failure> {
-    let opener = Opener { config, ports };
-    gecko_binding_module::status(options.json, &ports.binding(config, &opener)).await
+    let opener = Opener { store, ports };
+    gecko_binding_module::status(options.json, &ports.binding(store, &opener)).await
 }
 
 #[cfg(test)]

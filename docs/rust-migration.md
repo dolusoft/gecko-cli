@@ -144,7 +144,7 @@ Böylece üst belgenin "listede olmayan komut sekmeye hiç gitmez" ve "hassas gi
 - CLI bunları kendi kalıp cümlesiyle ve **kendi tırnaklamasıyla** basar ("şunu mu demek istediniz: gecko …", "çalıştırmak için: gecko …", "devamı: gecko …"). Tırnaklama kullanıcının kabuğu içindir (POSIX ya da PowerShell), sekmenin söz dilimiyle ilgisi yoktur; CLI'nın kendi işidir.
 - `--json`'da alanlar dizi olarak geçer. **Hiçbir zaman kendiliğinden çalışmaz.**
 - `outcome.line` (bugün yalnız `not-allowed`) `suggest`'e katılır ve kaldırılır (F13).
-- "kullanım: gecko help <komut>" ipucunu CLI ekler: sekme hata cevabında `help: "<ad>"` alanı verir (F20 ters bağ).
+- "kullanım: gecko help <komut>" ipucunu CLI ekler: sekme hata cevabında (`finished` ve `help-result`) isteğe bağlı `help: "<ad>"` alanı verir (F20 ters bağ, K-h). Alan yoksa CLI ipucu basmaz.
 
 ### 5.5 Yardım (B6, B9, B16)
 
@@ -170,12 +170,12 @@ Böylece üst belgenin "listede olmayan komut sekmeye hiç gitmez" ve "hassas gi
 
 **Kural 1: sessiz düşme yok (F15).** Sekme, `id`'sini okuyabildiği her bozuk isteğe `finished` hata cevabı döner (`invalid-args`, `class: usage`). Bugün okuyamadığı isteği sessizce bırakıyor (`dispatchFeature.ts:1111-1117`); CLI 32 sn bekleyip yanlışlıkla "ulaşmadı" diyor.
 
-**Kural 2: taban özellik kümesi (F19).** `capabilities` zarfı `features: string[]` taşır. Rust CLI'nın taban kümesi: `argv`, `received-v2` (§5.2 alanları), `suggest-argv`, `help-v2`, `error-class`. Sekme bunlardan birini bildirmiyorsa CLI tek bir şey yapar: kod 2 `unsupported-version`, "Gecko sekmesi bu CLI için eski; sayfayı yenileyin ya da ortamın güncellenmesini bekleyin". Eski yollar Rust'a **yazılmaz**: uyumlu kalınacak canlı ortam yok, SignalR iki tarafta da iskelet.
+**Kural 2: taban özellik kümesi (F19).** Yetenek listesinin baş bilgisi (§5.8) `features: string[]` taşır. Rust CLI'nın taban kümesi: `argv`, `received-v2` (§5.2 alanları), `suggest-argv`, `help-v2`, `error-class`, `capabilities-v2` (§5.8 biçimi). Sekme bunlardan birini bildirmiyorsa CLI tek bir şey yapar: kod 2 `unsupported-version`, "Gecko sekmesi bu CLI için eski; sayfayı yenileyin ya da ortamın güncellenmesini bekleyin". Eski yollar Rust'a **yazılmaz**: uyumlu kalınacak canlı ortam yok, SignalR iki tarafta da iskelet.
 
 **Kural 3: çift yönlü sürüm aralığı (A10, F24, F25).**
 
-- `capabilities.envelopes: number[]` (bugünkü `envelope: 1` yerine; ikisi bir süre birlikte gelir). CLI ortak en yüksek sürümü seçer ve isteğine yazar (`v`).
-- `capabilities.minCli?: string`: sekmenin desteklediği en eski CLI sürümü. CLI altındaysa kurulum komutunu basar, kod 2.
+- `envelopes: number[]` (baş bilgide, bugünkü `envelope: 1` yerine). CLI ortak en yüksek sürümü seçer ve isteğine yazar (`v`).
+- `minCli?: string` (baş bilgide): sekmenin desteklediği en eski CLI sürümü. CLI altındaysa kurulum komutunu basar, kod 2.
 - CLI sürümünü hub'a bağlanırken `User-Agent` ile bildirir (`gecko/<sürüm> (<platform>)`).
 
 **Kural 4: bilinmeyeni yok say, enum'a değer eklemek tanımlı varsayılan ister (F24).**
@@ -189,12 +189,14 @@ Böylece üst belgenin "listede olmayan komut sekmeye hiç gitmez" ve "hassas gi
 ### 5.8 Yetenek listesi (A5, A12, F22)
 
 - CLI listeyi üç iş için kullanır: üyelik denetimi (§5.2), hassas süzgeç (§5.3), `received` öncesi kopmada `danger`. `confirm` okunmaz.
-- **Güncellik (A5).** Liste `revision: string` taşır; sekme komut kümesi ya da hassas liste değiştikçe değiştirir ve yeni listeyi hub'a yollar. Hub son listeyi `status` cevabında verir. CLI dosya önbelleğini **hassas süzgeç için kullanmaz**: hub'da liste yoksa istek gönderilmez, kod 4 `tab-unreachable` (F22). **[FARK]** Bugün dosya önbelleği yedek olarak kullanılıyor.
-- **Boyut (A12).** 300 komutlu liste 17 KB oldu ve reddedildi. Liste en çok 3 parçada gelir (`capabilities-chunk`, `chunk` ile aynı düzen); tek parça sınırı 16 KB. Liste yalnız gerekenleri taşır: `name`, `aliases`, `danger`, `sensitive` adları.
+- **Yol (S1, 2026-11-10, frontend-v2-design ile).** Liste zarfla gitmez. Sekme onu hub yöntemiyle yayımlar: `publishCapabilities { revision: string, parts: string[] }`. Hub bunu yalnız bağlı tarayıcı bağlantısından kabul eder, listeyi **atomik** değiştirir (eski parçalarla yeni parçalar karışmaz) ve içeriğe bakmaz (§6.6). CLI listeyi `status` cevabından okur: `binding.capabilities = { revision, parts }`. `capabilities-chunk` türü yoktur.
+- **Biçim.** Liste her zaman parçalıdır (tek parça da bir dizidir). `parts` birleştirilince tek JSON nesnesi olur; baş bilgi bu nesnenin başındaki alanlardır (`features`, `envelopes`, `minCli`, `revision`), komutlar sonra gelir. Parça eksik ya da birleşim çözümlenemiyorsa CLI listeyi yok sayar ve liste hiç yokmuş gibi davranır (aşağıdaki kural: kod 4 `tab-unreachable`).
+- **Güncellik (A5).** `revision` sekme komut kümesi ya da hassas liste değiştikçe değişir; sekme yeni listeyi yeniden yayımlar. CLI dosya önbelleğini **hassas süzgeç için kullanmaz**: hub'da liste yoksa istek gönderilmez, kod 4 `tab-unreachable` (F22). **[FARK]** Bugün dosya önbelleği yedek olarak kullanılıyor.
+- **Boyut (A12).** 300 komutlu liste 17 KB oldu ve reddedildi. Tek parça sınırı 16 KB, en çok 3 parça. Hub'ın SignalR `MaximumReceiveMessageSize` değeri en az 64 KB olur (#1974). Liste yalnız gerekenleri taşır: `name`, `aliases`, `danger`, `sensitive` adları.
 
 ### 5.9 Sekmenin konumu (B13)
 
-`gecko status` ve `attach` sonrası "Bağlandı: <başlık> · <yol>" satırı bugün `nav.where` komutunu çalıştırıyor. Yerine sekme `binding` bilgisine `where: { title, path }` ekler (hub saklar, `status` cevabında verir; içeriğini okumaz). Sekme geçmişinde `nav.where` satırı da kalkar.
+`gecko status` ve `attach` sonrası "Bağlandı: <başlık> · <yol>" satırı bugün `nav.where` komutunu çalıştırıyor. Yerine sekme konumunu hub yöntemiyle yayımlar: `publishWhere { title, path }` (S2). `path` yalnız yoldur; sorgu dizesi ve `#` sonrası gönderilmez (adreste kimlik ya da filtre değeri olabilir). Yöntemi yalnız frontendx çağırır, hub yalnız bağlı tarayıcı bağlantısından kabul eder, saklar ve `status` cevabında `binding.where` olarak verir; içeriğini okumaz. Sekme geçmişinde `nav.where` satırı da kalkar.
 
 ## 6. Sözleşme değişiklik kuralı (A10, A11, F16, F23)
 
@@ -340,6 +342,8 @@ Anahtar deposu (token dosyada kalır) · kurulumlu masaüstü paketi (imza, `.ms
 | K2  | **Bütün kullanıcı metinleri İngilizce**: CLI'nın kendi metinleri, sekmenin CLI'ya döndüğü mesaj, yardım ve öneriler. **[FARK]** Bugün CLI metinleri Türkçe. `help-request`'te dil alanı yok. README ve skill örnekleri buna göre güncellenir. Kod 1–6 ve 130 anlamları değişmez                                                                                                                                                                                                                                 |
 | K3  | Tarayıcıda iptal edilen komut: `class: cancelled` → **kod 1**. **[FARK]** Bugün 130. 130 yalnız CLI'daki Ctrl+C                                                                                                                                                                                                                                                                                                                                                                                                 |
 | K4  | Adım 0 hataları spec onayından sonra issue olarak açılır; hızlı düzeltilip merge edilir                                                                                                                                                                                                                                                                                                                                                                                                                         |
+
+**Uygulayıcılar arası anlaşmalar (2026-11-10, gecko-cli ↔ command-console oturumları; Zahid kararı değil, tasarım ayrıntısı):** S1 yetenek listesi `publishCapabilities` yöntemiyle (§5.8) · S2 konum `publishWhere` yöntemiyle (§5.9) · S3 command-console `fixtures/remote/sequence/` örneklerinin beklenen kodları gecko-cli tarafının onayıyla merge edilir · K-h hata cevabında `help` alanı (§5.4).
 
 ## 12b. Eski sorular (kayıt için)
 

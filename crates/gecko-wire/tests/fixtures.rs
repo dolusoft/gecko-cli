@@ -1,4 +1,4 @@
-//! The examples published with command-console 1.7.1 (`fixtures/command-console-1.7.1/`)
+//! The examples published with command-console 1.7.2 (`fixtures/command-console-1.7.2/`)
 //! against the CLI's side of the contract: replies and capabilities it reads, the
 //! command name rule and the limits it checks before sending.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -13,7 +13,7 @@ use serde_json::{Map, Value, json};
 
 fn load(file: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/command-console-1.7.1/remote")
+        .join("../../fixtures/command-console-1.7.2/remote")
         .join(file);
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
 }

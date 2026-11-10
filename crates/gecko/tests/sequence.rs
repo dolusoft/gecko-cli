@@ -1,4 +1,4 @@
-//! command-console 1.7.1 `fixtures/remote/sequence/` against the CLI's run: each
+//! command-console 1.7.2 `fixtures/remote/sequence/` against the CLI's run: each
 //! example feeds replies and events in order and checks the exit code and a subset of
 //! the `--json` result. The run is the binary's own module, built here by path.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, dead_code)]
@@ -58,7 +58,7 @@ fn contains(whole: &Value, subset: &Value) -> bool {
 #[test]
 fn sequences() {
     let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/command-console-1.7.1/remote/sequence");
+        .join("../../fixtures/command-console-1.7.2/remote/sequence");
     let mut count = 0;
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
@@ -90,8 +90,16 @@ fn sequences() {
                     "{label}: {json}"
                 );
             }
+            // 1.7.2: an error thrown while planning a change comes with its text, and
+            // `--json` carries it.
+            if example["name"] == "change-plan-error" {
+                assert_eq!(
+                    json["message"], "/system/usersettings is not a page of your menu.",
+                    "{label}: {json}"
+                );
+            }
             count += 1;
         }
     }
-    assert_eq!(count, 18);
+    assert_eq!(count, 19);
 }

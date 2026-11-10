@@ -59,6 +59,10 @@ export interface TabClient {
   pair(code: string): Promise<TabBinding>
   /** `SendToCli`: a reply to the bound CLI, accepted from this page only. */
   sendToCli(reply: CliReply | HelpResult): Promise<{ delivered: boolean }>
+  /** The capability list, in parts, replaced whole on the hub (§5.8). */
+  publishCapabilities(revision: string, parts: string[]): Promise<void>
+  /** Where the tab is: a title and a path without query or hash (§5.9). */
+  publishWhere(where: { title?: string; path?: string }): Promise<void>
   /** "Bağlantıyı kes" in the terminal: the binding is gone, `detached`. */
   detach(): Promise<void>
   /** The page closes or reloads: the binding is gone, `closed`. */
@@ -120,6 +124,12 @@ export async function connectTab(
       return binding
     },
     sendToCli: reply => rpc.invoke('sendToCli', { reply }),
+    async publishCapabilities(revision, parts) {
+      await rpc.invoke('publishCapabilities', { revision, parts })
+    },
+    async publishWhere(where) {
+      await rpc.invoke('publishWhere', where)
+    },
     async detach() {
       await rpc.invoke('detach')
       binding = null

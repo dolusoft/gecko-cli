@@ -190,7 +190,19 @@ interface Binding {
   suspendTimer: NodeJS.Timeout | null
   /** The tab's last `capabilities` reply, kept whole and unread. */
   capabilities: unknown
+  /** The list from `publishCapabilities` (§5.8), replaced whole; unread. */
+  published?: { revision: string; parts: string[] }
+  /** Where the tab is, from `publishWhere` (§5.9); unread. */
+  where?: { title?: string; path?: string }
 }
+
+/** §5.8: one part at most 16 KB, at most 3 parts. */
+const maxPartBytes = 16 * 1024
+const maxParts = 3
+const maxRevisionLength = 256
+/** §5.9: generous bounds; the hub stores the text, it does not read it. */
+const maxTitleLength = 512
+const maxPathLength = 2048
 
 interface Conn {
   id: string
@@ -285,7 +297,10 @@ export async function startDevHub(
     state: binding.state,
     ...(binding.reason ? { reason: binding.reason } : {}),
     pageId: binding.pageId,
-    approvedAt: binding.approvedAt
+    approvedAt: binding.approvedAt,
+    ...(binding.where && binding.state !== 'gone'
+      ? { where: binding.where }
+      : {})
   })
 
   const announce = (binding: Binding) => {
@@ -592,8 +607,10 @@ export async function startDevHub(
         binding: binding
           ? {
               ...bindingView(binding),
-              ...(binding.capabilities !== undefined && binding.state !== 'gone'
-                ? { capabilities: binding.capabilities }
+              // The published list (§5.8) wins over a `capabilities` reply.
+              ...((binding.published ?? binding.capabilities) !== undefined &&
+              binding.state !== 'gone'
+                ? { capabilities: binding.published ?? binding.capabilities }
                 : {})
             }
           : null
@@ -848,6 +865,53 @@ export async function startDevHub(
         return { delivered: true }
       }
       return { delivered: false }
+    },
+    publishCapabilities(conn, args) {
+      const binding = bindingOfBrowser(conn)
+      if (!binding) {
+        return refuse('not-bound', 'this connection has no binding')
+      }
+      const { revision, parts } = args
+      if (
+        typeof revision !== 'string' ||
+        revision === '' ||
+        revision.length > maxRevisionLength ||
+        !Array.isArray(parts) ||
+        parts.length === 0 ||
+        !parts.every(part => typeof part === 'string')
+      ) {
+        return refuse('invalid', 'revision: string, parts: string[]')
+      }
+      if (
+        parts.length > maxParts ||
+        parts.some(part => Buffer.byteLength(part, 'utf8') > maxPartBytes)
+      ) {
+        return refuse(
+          'too-large',
+          `at most ${maxParts} parts of ${maxPartBytes} bytes`
+        )
+      }
+      // Replaced whole: old and new parts never mix (§5.8).
+      binding.published = { revision, parts: [...parts] }
+      return { ok: true }
+    },
+    publishWhere(conn, args) {
+      const binding = bindingOfBrowser(conn)
+      if (!binding) {
+        return refuse('not-bound', 'this connection has no binding')
+      }
+      const { title, path } = args
+      const optional = (value: unknown, max: number) =>
+        value === undefined ||
+        (typeof value === 'string' && value.length <= max)
+      if (!optional(title, maxTitleLength) || !optional(path, maxPathLength)) {
+        return refuse('invalid', 'title?: string, path?: string')
+      }
+      binding.where = {
+        ...(typeof title === 'string' ? { title } : {}),
+        ...(typeof path === 'string' ? { path } : {})
+      }
+      return { ok: true }
     },
     detach(conn) {
       const binding = bindingOfBrowser(conn)

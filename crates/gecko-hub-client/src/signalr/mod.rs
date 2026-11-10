@@ -1,4 +1,4 @@
-//! The narrow SignalR client (docs/signalr-trial.md, docs/rust-migration.md §7.4).
+//! The narrow SignalR client (spec §7.4).
 //!
 //! JSON protocol over WebSockets only, one short connection per `gecko` call, no
 //! reconnect. The token travels only in the `Authorization` header. The `Transport`

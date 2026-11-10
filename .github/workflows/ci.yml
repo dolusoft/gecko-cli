@@ -61,7 +61,7 @@ jobs:
       - run: pnpm test
       - run: pnpm measure:startup
 
-  # Rust workspace (docs/rust-migration.md §7). Both feature sets are checked: the
+  # Rust workspace (spec §7). Both feature sets are checked: the
   # default one (with the dev hub) and the release one (--no-default-features, K1).
   rust:
     strategy:
@@ -92,7 +92,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # The SignalR client of gecko-hub-client (docs/signalr-trial.md) against the smallest
+  # The SignalR client of gecko-hub-client against the smallest
   # ASP.NET Core hub. The hub stays in CI because the real backend is not ours. Format
   # and clippy run in the rust job; this one only adds the hub.
   signalr:

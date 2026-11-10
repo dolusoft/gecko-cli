@@ -31,7 +31,7 @@
     "type": "git",
     "url": "git+https://github.com/dolusoft/gecko-cli.git"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "scripts": {
     "build": "node scripts/clean.mjs && tsc -p tsconfig.build.json",
     "lint": "eslint .",

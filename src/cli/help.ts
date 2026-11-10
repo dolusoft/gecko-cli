@@ -1,7 +1,7 @@
 // `gecko help [namespace|command]`: the bound tab's help (§4). The tab's own
 // `help` command is not open to the CLI, so the CLI sends a `help-request`
 // and the tab answers with its agent `help` tool's output, which filters by
-// permission and pages. docs/browser-side.md has the envelopes.
+// permission and pages.
 
 import { randomUUID } from 'node:crypto'
 

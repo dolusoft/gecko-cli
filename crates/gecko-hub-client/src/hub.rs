@@ -1,4 +1,4 @@
-//! The hub's own answers, which the CLI reads (docs/browser-side.md; #1974 item 10):
+//! The hub's own answers, which the CLI reads (#1974 item 10):
 //! `status`, a binding, a pairing code. Unknown fields are ignored and an unknown
 //! binding state reads as `Unknown`, so a newer hub does not break an older CLI.
 

@@ -1,5 +1,5 @@
 // Smallest ASP.NET Core SignalR hub that behaves like the Gecko hub described in
-// dolusoft/gecko-project-backend#1974, for the Rust client trial (docs/rust-migration.md §7.4).
+// the backend issue #1974, for the Rust client trial (spec §7.4).
 // It is a test fixture, not the real backend.
 //
 // Tokens (Authorization: Bearer <token>, never in the query string):

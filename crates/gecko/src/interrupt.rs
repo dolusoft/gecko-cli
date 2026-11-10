@@ -1,0 +1,54 @@
+//! Ctrl+C, counted. With `GECKO_TEST_INTERRUPT_STDIN=1` every `x` written to stdin
+//! counts as one too: Windows cannot send SIGINT to a child process, so the tests use
+//! this (docs/test-hooks.md).
+
+use tokio::io::AsyncReadExt;
+use tokio::sync::watch;
+
+/// How many interrupts arrived so far.
+#[derive(Debug, Clone)]
+pub struct Interrupts {
+    count: watch::Receiver<u32>,
+    seen: u32,
+}
+
+impl Interrupts {
+    /// Starts listening; call inside the runtime.
+    pub fn listen() -> Interrupts {
+        let (tx, count) = watch::channel(0u32);
+        let ctrl_c = tx.clone();
+        tokio::spawn(async move {
+            while tokio::signal::ctrl_c().await.is_ok() {
+                ctrl_c.send_modify(|n| *n += 1);
+            }
+        });
+        if std::env::var_os("GECKO_TEST_INTERRUPT_STDIN").is_some_and(|v| v == "1") {
+            tokio::spawn(async move {
+                let mut stdin = tokio::io::stdin();
+                let mut buffer = [0u8; 64];
+                while let Ok(read) = stdin.read(&mut buffer).await {
+                    if read == 0 {
+                        break;
+                    }
+                    let presses = buffer[..read].iter().filter(|b| **b == b'x').count();
+                    for _ in 0..presses {
+                        tx.send_modify(|n| *n += 1);
+                    }
+                }
+            });
+        }
+        Interrupts { count, seen: 0 }
+    }
+
+    /// Resolves at the next interrupt not yet seen, even one that arrived before the
+    /// call; so an interrupt between two waits is never lost.
+    pub async fn next(&mut self) {
+        let seen = self.seen;
+        match self.count.wait_for(|n| *n > seen).await {
+            // One at a time: two quick presses resolve two waits.
+            Ok(_) => self.seen = seen + 1,
+            // Nothing can interrupt any more.
+            Err(_) => std::future::pending::<()>().await,
+        }
+    }
+}

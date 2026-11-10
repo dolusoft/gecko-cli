@@ -165,6 +165,14 @@ mod tests {
     }
 
     #[test]
+    fn from_env_reads_the_process_variables() {
+        assert_eq!(
+            ProxyRule::from_env(),
+            ProxyRule::from_lookup(|name| std::env::var(name).ok())
+        );
+    }
+
+    #[test]
     fn scheme_picks_the_variable() {
         let rule = rule(&[
             ("HTTPS_PROXY", "http://secure:3128"),

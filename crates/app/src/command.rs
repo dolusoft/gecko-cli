@@ -3,7 +3,7 @@
 //! rules and the slices are `gecko-command-domain` and `gecko-command-module`; opening
 //! and closing the connection is the binary's.
 
-use gecko_binding_module::adapters::fs::Config;
+use gecko_binding_contract::TokenStore;
 use gecko_command_domain::line::precheck;
 use gecko_hub_protocol::HubConnection;
 use gecko_kernel::{Clock, Failure, IdSource, Interrupts, Outcome, Reporter};
@@ -35,14 +35,14 @@ pub fn input_of(argv: Option<Vec<String>>, line: Option<String>) -> Result<Input
 /// a binding starts only from a code copied out of a tab (attach spec §3.1).
 pub async fn line(
     options: &Options,
-    config: &Config,
+    store: &impl TokenStore,
     ports: &Ports<impl Clock, impl IdSource>,
     input: Input,
     io: &mut impl Reporter,
     interrupts: &mut impl Interrupts,
 ) -> Result<Outcome, Failure> {
     let name = precheck(&input)?;
-    let mut session = session::open(config, ports).await?;
+    let mut session = session::open(store, ports).await?;
     let result = gecko_command_module::run_line(
         &mut session,
         &ports.command(),
@@ -60,12 +60,12 @@ pub async fn line(
 /// `gecko help …`: the bound tab's commands.
 pub async fn help(
     args: &[String],
-    config: &Config,
+    store: &impl TokenStore,
     ports: &Ports<impl Clock, impl IdSource>,
     io: &mut impl Reporter,
     interrupts: &mut impl Interrupts,
 ) -> Result<Outcome, Failure> {
-    let mut session = session::open(config, ports).await?;
+    let mut session = session::open(store, ports).await?;
     let result = gecko_command_module::help(
         &mut session.hub,
         &session.status,
@@ -77,4 +77,27 @@ pub async fn help(
     .await;
     session.hub.close().await;
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inputs_of_a_line() {
+        let words = vec!["tasks".to_owned(), "list".to_owned()];
+        assert_eq!(
+            input_of(Some(words.clone()), None).unwrap(),
+            Input::Argv(words)
+        );
+        assert_eq!(
+            input_of(None, Some("tasks list".to_owned())).unwrap(),
+            Input::Line("tasks list".to_owned())
+        );
+        let none = input_of(None, None).unwrap_err();
+        assert_eq!(
+            (none.code.as_str(), none.message.as_str()),
+            ("usage", "no command")
+        );
+    }
 }

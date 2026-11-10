@@ -5,7 +5,6 @@
 //! `gecko_hub_protocol::Session`.
 
 use gecko_binding_contract::{StoredToken, TokenStore};
-use gecko_binding_module::adapters::fs::Config;
 use gecko_binding_module::adapters::http::Auth;
 use gecko_hub_client::dev::{DevOptions, DevTransport};
 use gecko_hub_protocol::address::{Choice, choose};
@@ -43,17 +42,17 @@ fn host_of(hub: &str) -> Result<String, Failure> {
 
 /// Connects with the stored token; without one, `no-binding`.
 pub async fn open(
-    config: &Config,
+    store: &impl TokenStore,
     ports: &Ports<impl Clock, impl IdSource>,
 ) -> Result<Session<DevTransport>, Failure> {
-    let token = config.read_token().ok_or_else(no_binding)?;
-    open_with(config, token, ports).await
+    let token = store.read_token().ok_or_else(no_binding)?;
+    open_with(store, token, ports).await
 }
 
 /// Connects with `token`; when the hub refuses it, refreshes it once and tries again.
-/// A refused refresh means the binding ended: the token file goes (attach spec §6).
+/// A refused refresh means the binding ended: the token goes (attach spec §6).
 pub async fn open_with(
-    config: &Config,
+    store: &impl TokenStore,
     token: StoredToken,
     ports: &Ports<impl Clock, impl IdSource>,
 ) -> Result<Session<DevTransport>, Failure> {
@@ -69,11 +68,11 @@ pub async fn open_with(
     }
     let auth = Auth::new(&token.hub, ports.proxy.clone())?;
     let clock = &ports.clock;
-    let token = auth.current_token(config, token, false, clock).await?;
+    let token = auth.current_token(store, token, false, clock).await?;
     let mut hub = match DevTransport::connect(&DevOptions::new(&host, &token.access_token)).await {
         Ok(hub) => hub,
         Err(Closed::Unauthorized) => {
-            let token = auth.current_token(config, token, true, clock).await?;
+            let token = auth.current_token(store, token, true, clock).await?;
             DevTransport::connect(&DevOptions::new(&host, &token.access_token))
                 .await
                 .map_err(open_failure)?
@@ -102,5 +101,20 @@ mod tests {
         assert_eq!(host_of("http://127.0.0.1:4400").unwrap(), "127.0.0.1:4400");
         assert_eq!(host_of("https://hub.example").unwrap(), "hub.example");
         assert_eq!(host_of("http://[::1]:9").unwrap(), "[::1]:9");
+        assert!(host_of("not an address").is_err());
+    }
+
+    #[test]
+    fn an_answer_not_understood_fails() {
+        let raw = RawValue::from_string("[1]".to_owned()).unwrap();
+        let failure = read::<HubStatus>(&raw, "status").unwrap_err();
+        assert_eq!(failure.code, "failed");
+        assert!(
+            failure
+                .message
+                .starts_with("the hub's status answer is not understood: "),
+            "{}",
+            failure.message
+        );
     }
 }

@@ -39,4 +39,28 @@ mod tests {
         assert_eq!(no_binding().code, "no-binding");
         assert!(no_binding().message.contains("gecko attach <code>"));
     }
+
+    #[test]
+    fn every_end_reason_reads_and_says_how_to_bind_again() {
+        let cases = [
+            (Some("replaced"), "the tab was bound again with a new code"),
+            (Some("closed"), "the bound tab was closed"),
+            (Some("detached"), "the binding was removed"),
+            (Some("logged-out"), "the browser session was signed out"),
+            (Some("revoked"), "the CLI access was revoked in the profile"),
+            (
+                Some("suspended-timeout"),
+                "the bound tab did not come back within 60 s",
+            ),
+            (Some("something-new"), "the binding ended"),
+            (None, "the binding ended"),
+        ];
+        for (reason, why) in cases {
+            assert_eq!(
+                gone_message(reason),
+                format!("{why}; {BIND_AGAIN}"),
+                "{reason:?}"
+            );
+        }
+    }
 }

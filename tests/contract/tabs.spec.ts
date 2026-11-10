@@ -399,6 +399,45 @@ describe('§5.5 tabs', () => {
     expect((await run(['search', '--ip', '1'], otherDir)).code).toBe(0)
   })
 
+  it('publishCapabilities and publishWhere: the status carries them (§5.8, §5.9)', async () => {
+    const { dir, tab } = await bound()
+    await tab.tab.publishCapabilities('r1', [
+      '{"revision":"r1",',
+      '"commands":[]}'
+    ])
+    await tab.tab.publishWhere({ title: 'Tasks', path: '/tasks' })
+    // A new list replaces the old one whole.
+    await tab.tab.publishCapabilities('r2', ['{"revision":"r2"}'])
+    const transport = await rawCli(hub, dir)
+    const status = await transport.status()
+    await transport.close()
+    expect(status.binding).toMatchObject({
+      state: 'active',
+      capabilities: { revision: 'r2', parts: ['{"revision":"r2"}'] },
+      where: { title: 'Tasks', path: '/tasks' }
+    })
+  })
+
+  it('publish methods: bound tabs only, typed and bounded', async () => {
+    const { tab } = await tabOf()
+    await expect(tab.tab.publishWhere({ title: 'x' })).rejects.toMatchObject({
+      code: 'not-bound'
+    })
+    const { tab: boundTab } = await bound()
+    await expect(
+      boundTab.tab.publishCapabilities('r', [])
+    ).rejects.toMatchObject({ code: 'invalid' })
+    await expect(
+      boundTab.tab.publishCapabilities('r', ['a', 'b', 'c', 'd'])
+    ).rejects.toMatchObject({ code: 'too-large' })
+    await expect(
+      boundTab.tab.publishCapabilities('r', ['x'.repeat(16 * 1024 + 1)])
+    ).rejects.toMatchObject({ code: 'too-large' })
+    await expect(
+      boundTab.tab.rpc.invoke('publishWhere', { title: 1 })
+    ).rejects.toMatchObject({ code: 'invalid' })
+  })
+
   it('a tab that predates the CLI sends no capabilities: refresh the page, code 2', async () => {
     const dir = await loggedIn()
     const { tab } = await tabOf()

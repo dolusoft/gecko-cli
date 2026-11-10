@@ -47,21 +47,25 @@ Tek WebSocket üstünde JSON. Gerçek hub'da SignalR çağrısı ve olayı olaca
 
 ## Sekmenin yöntemleri
 
-| Yöntem      | Argüman        | Dönüş                                                     | Hatalar                                                                    |
-| ----------- | -------------- | --------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `hello`     | `{ pageId }`   | `{ binding: { bindingId, grantId, approvedAt } \| null }` | `invalid`                                                                  |
-| `pairInfo`  | `{ code }`     | `{ grantCreatedAt, env }`                                 | `invalid-code`, `other-account`, `no-terminal-access`, `too-many-attempts` |
-| `pair`      | `{ code }`     | `{ bindingId, grantId, approvedAt }`                      | `pairInfo`'nunkiler; önce `hello` gerekir                                  |
-| `sendToCli` | `{ reply }`    | `{ delivered }`                                           | `not-bound`                                                                |
-| `detach`    | —              | `{ ok }`                                                  | —                                                                          |
-| `unload`    | —              | `{ ok }`                                                  | —                                                                          |
-| `logout`    | —              | `{ ok }`                                                  | —                                                                          |
-| `broadcast` | `{ envelope }` | `{ delivered }`                                           | —                                                                          |
+| Yöntem                | Argüman               | Dönüş                                                     | Hatalar                                                                    |
+| --------------------- | --------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `hello`               | `{ pageId }`          | `{ binding: { bindingId, grantId, approvedAt } \| null }` | `invalid`                                                                  |
+| `pairInfo`            | `{ code }`            | `{ grantCreatedAt, env }`                                 | `invalid-code`, `other-account`, `no-terminal-access`, `too-many-attempts` |
+| `pair`                | `{ code }`            | `{ bindingId, grantId, approvedAt }`                      | `pairInfo`'nunkiler; önce `hello` gerekir                                  |
+| `sendToCli`           | `{ reply }`           | `{ delivered }`                                           | `not-bound`                                                                |
+| `publishCapabilities` | `{ revision, parts }` | `{ ok }`                                                  | `not-bound`, `invalid`, `too-large`                                        |
+| `publishWhere`        | `{ title?, path? }`   | `{ ok }`                                                  | `not-bound`, `invalid`                                                     |
+| `detach`              | —                     | `{ ok }`                                                  | —                                                                          |
+| `unload`              | —                     | `{ ok }`                                                  | —                                                                          |
+| `logout`              | —                     | `{ ok }`                                                  | —                                                                          |
+| `broadcast`           | `{ envelope }`        | `{ delivered }`                                           | —                                                                          |
 
 - **`hello`** her bağlantıda ve sayfa kimliği değişince çağrılır. Askıdaki (`suspended`) bir bağlama 60 sn içinde aynı `pageId` ile gelirse `active`'e döner ve `binding` dolu gelir. Sekme o zaman command-console'da bağlamayı korur (`suspendRemote()` bağlamayı düşürmez); çekirdeğin bağlaması yoksa `attachRemote(binding)` yeniden çağrılır.
 - **`pairInfo`** kodu tüketmez. Kod başka hesaba aitse hub CLI'ya da haber verir; CLI "tarayıcıda başka hesap açık" der ve beklemeyi sürdürür. Terminal erişimi yoksa kod tüketilmez, CLI kod 3 ile çıkar.
 - **`pair`** kodu atomik olarak tüketir. Bu sayfanın eski bağlaması ve aynı yetkinin başka sekmedeki bağlaması `gone`, `replaced` olur.
 - **`sendToCli`** yalnız bağlamanın tarayıcı bağlantısından kabul edilir (bugünkü `Send` bütün gruba dağıtıyor; bu ayrı bir yöntemdir). Hub zarfın yalnız `kind` alanına bakar: `capabilities` cevabını bir sonraki CLI bağlantısı için saklar, çünkü her `gecko` çağrısı yeni bir bağlantıdır.
+- **`publishCapabilities`** (command-console 1.7.0, spec §5.8): yetenek listesi parçalı yayımlanır; `revision` boş olmayan metin, `parts` en çok 3 parça, her biri en çok 16 KB (UTF-8). Hub listeyi bütün olarak değiştirir (eski ve yeni parçalar karışmaz), içeriğe bakmaz ve CLI'ya `status` cevabında `binding.capabilities = { revision, parts }` olarak verir. Yayımlanmış liste, `sendToCli` ile gelen eski `capabilities` cevabından önce gelir.
+- **`publishWhere`** (spec §5.9): sekmenin başlığı ve yolu; yol sorgu dizesi ve `#` sonrası olmadan gönderilir. Hub saklar, okumaz; `status` cevabında ve `binding`/`paired` olaylarında `binding.where` olarak verir. Bağlama `gone` olunca gösterilmez.
 - **`detach`**: terminaldeki "bağlantıyı kes" düğmesi. Bağlama `gone`, `detached`.
 - **`unload`**: sayfa kapanıyor ya da yenileniyor. Bağlama `gone`, `closed`.
 - **`broadcast`**: bugünkü tarayıcılar arası yayın. CLI bağlantıları bu yayına hiç katılmaz.

@@ -92,7 +92,7 @@ pub async fn open(target: &Url, proxy: &ProxyRule) -> io::Result<Stream> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     let tcp = match via {
         Some(proxy) => tunnel(&proxy, &host, port).await?,
-        None => TcpStream::connect((host.as_str(), port)).await?,
+        None => crate::tcp::connect(&host, port).await?,
     };
     tcp.set_nodelay(true)?;
     if !tls {
@@ -111,7 +111,7 @@ const MAX_PROXY_ANSWER: usize = 8 * 1024;
 pub async fn tunnel(proxy: &Url, host: &str, port: u16) -> io::Result<TcpStream> {
     let proxy_host = host_name(proxy)?;
     let proxy_port = proxy.port_or_known_default().unwrap_or(80);
-    let mut socket = TcpStream::connect((proxy_host.as_str(), proxy_port))
+    let mut socket = crate::tcp::connect(&proxy_host, proxy_port)
         .await
         .map_err(|error| io::Error::new(error.kind(), format!("proxy {proxy_host}: {error}")))?;
 

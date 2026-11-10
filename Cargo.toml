@@ -30,9 +30,11 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = ["h
 # The terminal's width for tables (UX U6).
 terminal_size = "0.4"
 url = "2"
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# Denied, not forbidden: one Windows call (gecko-hub-client `tcp.rs`) opts in by name.
+unsafe_code = "deny"
 missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]

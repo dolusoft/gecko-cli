@@ -10,7 +10,7 @@ use std::time::Duration;
 use gecko_hub_client::hub::{Binding, BindingState};
 use gecko_hub_client::{CallError, Closed, HubEvent, Transport};
 use gecko_wire::capabilities::{Capabilities, read_parts, version_below};
-use gecko_wire::reply::{Read, Reply, Status, read_value};
+use gecko_wire::reply::{Read, Status, read_value};
 use gecko_wire::request::{self, Input, check_limits, command_name, fits};
 use serde::Deserialize;
 use serde_json::Value;
@@ -19,6 +19,7 @@ use tokio::time::{Instant, sleep_until};
 use crate::args::Options;
 use crate::binding::gone_message;
 use crate::config::Config;
+use crate::help;
 use crate::interrupt::Interrupts;
 use crate::output::{Failure, Io, Outcome, interactive};
 use crate::own::env_of;
@@ -30,10 +31,8 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 const RATE_WAIT_MAX: Duration = Duration::from_secs(5);
 /// How long the tab's answer to a cancel is awaited (§6.6).
 const CANCEL_WAIT: Duration = Duration::from_secs(3);
-/// How long a help request for an unknown name is awaited.
-const HELP_WAIT: Duration = Duration::from_secs(10);
 
-fn millis_env(name: &str, default: Duration) -> Duration {
+pub(crate) fn millis_env(name: &str, default: Duration) -> Duration {
     std::env::var(name)
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -41,7 +40,7 @@ fn millis_env(name: &str, default: Duration) -> Duration {
 }
 
 /// A request id: 128 random bits from the standard library's hasher keys.
-fn new_id() -> String {
+pub(crate) fn new_id() -> String {
     use std::hash::BuildHasher;
     let random = || std::collections::hash_map::RandomState::new().hash_one(session::now_ms());
     format!("{:016x}{:016x}", random(), random())
@@ -61,7 +60,7 @@ fn too_old() -> Failure {
 }
 
 /// The binding's capability list, checked against what this CLI needs (§5.7, §5.8).
-fn capabilities_of(binding: &Binding) -> Result<Capabilities, Failure> {
+pub(crate) fn capabilities_of(binding: &Binding) -> Result<Capabilities, Failure> {
     let unreadable = || {
         Failure::new(
             "tab-unreachable",
@@ -91,7 +90,7 @@ fn capabilities_of(binding: &Binding) -> Result<Capabilities, Failure> {
 }
 
 /// The live binding, or why there is none to send to.
-fn live_binding(session: &Session) -> Result<&Binding, Failure> {
+pub(crate) fn live_binding(session: &Session) -> Result<&Binding, Failure> {
     match &session.status.binding {
         None => Err(Failure::new(
             "no-binding",
@@ -199,7 +198,7 @@ async fn run_in(
     }
     if caps.command(name).is_none() {
         // Only the name goes to the tab, for its suggestion (§5.2 step 3).
-        if let Some(outcome) = unknown_name(session, &caps, name).await? {
+        if let Some(outcome) = unknown_name(session, &caps, name, interrupts).await? {
             return Ok(outcome);
         }
         // The tab knows it: the list was stale. Read it once more.
@@ -233,9 +232,7 @@ async fn run_in(
         Err(Sent::Lost(why)) => return Ok(end_of(run.on(Event::Lost(why)))),
         Err(Sent::Revoked) => return Ok(end_of(run.on(Event::Revoked))),
     };
-    let margin = millis_env("GECKO_DELIVERY_MARGIN_MS", Duration::from_secs(2));
-    let window = Duration::from_millis(stamp.expires_at.saturating_sub(stamp.stamped_at));
-    let delivery = Instant::now() + window + margin;
+    let delivery = stamp.delivery_deadline();
     let mut cancel_by: Option<Instant> = None;
     let far = Instant::now() + Duration::from_secs(365 * 24 * 3600);
     let mut delivered_checked = false;
@@ -349,7 +346,7 @@ fn end_of(step: Step) -> Outcome {
     }
 }
 
-fn raw(value: &Value) -> Box<serde_json::value::RawValue> {
+pub(crate) fn raw(value: &Value) -> Box<serde_json::value::RawValue> {
     serde_json::value::to_raw_value(value).unwrap_or_else(|_| {
         serde_json::value::RawValue::from_string("{}".to_owned()).unwrap_or_default()
     })
@@ -357,12 +354,23 @@ fn raw(value: &Value) -> Box<serde_json::value::RawValue> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Stamp {
-    stamped_at: u64,
-    expires_at: u64,
+pub(crate) struct Stamp {
+    pub stamped_at: u64,
+    pub expires_at: u64,
 }
 
-enum Sent {
+impl Stamp {
+    /// When an unanswered request counts as not delivered: the hub's window plus
+    /// `GECKO_DELIVERY_MARGIN_MS`.
+    pub fn delivery_deadline(&self) -> Instant {
+        let margin = millis_env("GECKO_DELIVERY_MARGIN_MS", Duration::from_secs(2));
+        Instant::now()
+            + Duration::from_millis(self.expires_at.saturating_sub(self.stamped_at))
+            + margin
+    }
+}
+
+pub(crate) enum Sent {
     /// The hub refused it: nothing reached the tab.
     Refused(Failure),
     /// The connection ended while sending: it may have gone out.
@@ -371,7 +379,7 @@ enum Sent {
 }
 
 /// `send`, retried while the hub answers `rate-limited`; a `busy` is never retried.
-async fn send(session: &mut Session, envelope: &Value) -> Result<Stamp, Sent> {
+pub(crate) async fn send(session: &mut Session, envelope: &Value) -> Result<Stamp, Sent> {
     let body = raw(envelope);
     let mut waited = Duration::ZERO;
     loop {
@@ -426,49 +434,36 @@ async fn unknown_name(
     session: &mut Session,
     caps: &Capabilities,
     name: &str,
+    interrupts: &mut Interrupts,
 ) -> Result<Option<Outcome>, Failure> {
     let v = caps.envelope().unwrap_or(1);
-    let id = new_id();
-    let envelope = request::help_request(v, &id, &[name.to_owned()], true, None);
-    session
-        .hub
-        .send(&raw(&envelope))
-        .await
-        .map_err(|error| call_failure(error, false))?;
-    let deadline = Instant::now() + HELP_WAIT;
-    loop {
-        tokio::select! {
-            event = session.hub.next_event() => match event {
-                Ok(HubEvent::Reply(raw)) => {
-                    let Ok(value) = serde_json::from_str::<Value>(raw.get()) else { continue };
-                    if value.get("id").and_then(Value::as_str) != Some(id.as_str()) {
-                        continue;
-                    }
-                    let Read::Reply(Reply::HelpResult(help)) = read_value(&value) else { continue };
-                    if help.status == Status::Ok {
-                        return Ok(None);
-                    }
-                    let code = help.failure.code.clone().unwrap_or_else(|| "unknown-command".to_owned());
-                    let message = help
-                        .failure
-                        .message
-                        .clone()
-                        .unwrap_or_else(|| format!("unknown command: {name}"));
-                    let mut outcome = Outcome::error(code, message, help.exit_code());
-                    outcome.suggest = help.suggest.clone();
-                    if help.failure.message.is_some() {
-                        outcome.untrusted.push("message");
-                    }
-                    return Ok(Some(outcome));
-                }
-                Ok(_) => {}
-                Err(closed) => return Err(lost_failure(closed)),
-            },
-            () = sleep_until(deadline) => {
-                return Ok(Some(Outcome::error("unknown-command", format!("unknown command: {name}"), 2)));
-            }
-        }
+    let answer = help::ask(session, v, &[name.to_owned()], true, None, interrupts).await?;
+    if let Some(outcome) = help::ended(&answer) {
+        return Ok(Some(outcome));
     }
+    let help::Answer::Result(help) = answer else {
+        return Ok(None);
+    };
+    if help.status == Status::Ok {
+        return Ok(None);
+    }
+    let code = help
+        .failure
+        .code
+        .clone()
+        .unwrap_or_else(|| "unknown-command".to_owned());
+    let message = help
+        .failure
+        .message
+        .clone()
+        .unwrap_or_else(|| format!("unknown command: {name}"));
+    let mut outcome = Outcome::error(code, message, help.exit_code());
+    // The suggestion names a command: `gecko <name>`.
+    outcome.suggest = help.suggest.clone();
+    if help.failure.message.is_some() {
+        outcome.untrusted.push("message");
+    }
+    Ok(Some(outcome))
 }
 
 /// UX U2: stdin and stderr are terminals, no `--json`, no `--line`.

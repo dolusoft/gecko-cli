@@ -85,6 +85,9 @@ pub struct Outcome {
     pub help: Option<String>,
     pub complete: bool,
     pub untrusted: Vec<&'static str>,
+    /// Lines the tab wrapped for the terminal (`help` text); plain output only.
+    #[serde(skip)]
+    pub lines: Option<Vec<String>>,
 }
 
 impl Outcome {
@@ -107,6 +110,7 @@ impl Outcome {
             help: None,
             complete: true,
             untrusted: Vec::new(),
+            lines: None,
         }
     }
 
@@ -212,7 +216,12 @@ pub fn quote_argv(argv: &[String]) -> String {
 
 /// The plain text of an ok result for stdout.
 fn plain_text(outcome: &Outcome, columns: Option<usize>) -> String {
-    let mut lines = Vec::new();
+    let mut lines: Vec<String> = outcome
+        .lines
+        .iter()
+        .flatten()
+        .map(|line| escape_controls(line))
+        .collect();
     let summary = outcome.summary.as_deref().map(escape_controls);
     if outcome.preview {
         let head = format!("Preview: {}", summary.unwrap_or_default());

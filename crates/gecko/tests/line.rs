@@ -506,3 +506,70 @@ fn a_slow_tab_shows_the_wait_indicator() {
         .unwrap();
     assert!(output.stderr.is_empty(), "{:?}", text(&output.stderr));
 }
+
+fn help_plan(help: Value) -> Plan {
+    Plan {
+        capabilities: standard_caps(),
+        help: Some(help),
+        ..Plan::default()
+    }
+}
+
+#[test]
+fn help_prints_the_tabs_text() {
+    let plan = help_plan(json!({
+        "kind": "help-result", "status": "ok",
+        "text": ["Commands:", "  tasks.list · read", "      Lists the tasks."],
+        "next": ["help", "--cursor", "20"]
+    }));
+    let (output, seen) = run("help-text", plan, &["help"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(
+        text(&output.stdout),
+        "Commands:\n  tasks.list · read\n      Lists the tasks.\nCLI options come before the command name: gecko --json <command> ...; the full output with --json.\nMore: gecko help --cursor 20\n"
+    );
+    assert_eq!(kinds(&seen), ["help-request"]);
+    assert_eq!(seen.envelopes[0]["want"], "text");
+    assert_eq!(seen.envelopes[0]["argv"], json!([]));
+}
+
+#[test]
+fn help_json_and_help_lines() {
+    let plan = help_plan(json!({
+        "kind": "help-result", "status": "ok", "result": { "name": "tasks.list" }
+    }));
+    let (output, seen) = run("help-json", plan, &["--json", "help", "tasks.list"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(json_of(&output)["data"], json!({ "name": "tasks.list" }));
+    assert_eq!(seen.envelopes[0]["want"], "json");
+    assert_eq!(seen.envelopes[0]["argv"], json!(["tasks.list"]));
+
+    let plan = help_plan(json!({
+        "kind": "help-result", "status": "error", "code": "unknown-command", "class": "usage",
+        "message": "unknown command: tsks", "suggest": ["tasks"]
+    }));
+    let (output, seen) = run("help-line", plan, &["--line", "help tsks"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(kinds(&seen), ["help-request"]);
+    assert_eq!(
+        text(&output.stderr),
+        "error (unknown-command): unknown command: tsks\nDid you mean: gecko help tasks\n"
+    );
+}
+
+#[test]
+fn help_without_a_login() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("line")
+        .join("help-no-login");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let output = gecko(&dir, &["help"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert!(text(&output.stdout).starts_with("gecko: remote control"));
+    assert!(text(&output.stderr).contains("gecko login --env <env>"));
+
+    let output = gecko(&dir, &["--json", "help"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(6));
+    assert_eq!(json_of(&output)["code"], "not-logged-in");
+}

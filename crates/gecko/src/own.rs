@@ -1,5 +1,5 @@
 //! The CLI's own commands: login and logout here, the binding commands in `binding`;
-//! help follows in step 4b-5. Their options come after the name: `gecko login --env dev`.
+//! `help` in `help`. Their options come after the name: `gecko login --env dev`.
 
 use gecko_hub_client::proxy::ProxyRule;
 

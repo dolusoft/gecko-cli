@@ -10,6 +10,7 @@ use std::collections::VecDeque;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
+use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{WebSocketStream, client_async};
@@ -90,12 +91,14 @@ impl Tab {
         tab
     }
 
-    /// The next frame, within [`WAIT`].
-    async fn frame(&mut self) -> Value {
+    /// The next text frame, by `deadline`: the one bound of the whole wait that
+    /// called it. Control frames (the hub's pings) and other frames read on the way do
+    /// not start the wait again, so a test that breaks fails instead of hanging.
+    async fn frame(&mut self, deadline: Instant) -> Value {
         loop {
-            let message = tokio::time::timeout(WAIT, self.socket.next())
+            let message = tokio::time::timeout_at(deadline, self.socket.next())
                 .await
-                .unwrap_or_else(|_| panic!("the tab got no frame within {WAIT:?}"));
+                .unwrap_or_else(|_| panic!("the tab waited {WAIT:?} in vain"));
             match message {
                 Some(Ok(Message::Text(text))) => {
                     return serde_json::from_str(text.as_str())
@@ -119,12 +122,13 @@ impl Tab {
         self.next += 1;
         let id = self.next;
         let frame = json!({ "t": "invoke", "id": id, "method": method, "args": args });
-        tokio::time::timeout(WAIT, self.socket.send(Message::text(frame.to_string())))
+        let deadline = Instant::now() + WAIT;
+        tokio::time::timeout_at(deadline, self.socket.send(Message::text(frame.to_string())))
             .await
             .unwrap_or_else(|_| panic!("{method}: not sent within {WAIT:?}"))
             .unwrap_or_else(|error| panic!("{method}: {error}"));
         loop {
-            let frame = self.frame().await;
+            let frame = self.frame(deadline).await;
             if frame["t"] == "result" && frame["id"] == id {
                 return if frame["ok"] == true {
                     Ok(frame["value"].clone())
@@ -145,13 +149,17 @@ impl Tab {
     /// Waits for the hub's event `name` (`binding`, `cli-message`, `broadcast`, ...)
     /// and returns its payload; earlier events of other names are kept.
     pub async fn saw(&mut self, name: &str) -> Value {
+        self.saw_by(name, Instant::now() + WAIT).await
+    }
+
+    async fn saw_by(&mut self, name: &str, deadline: Instant) -> Value {
         if let Some(index) = self.events.iter().position(|(n, _)| n == name)
             && let Some((_, payload)) = self.events.remove(index)
         {
             return payload;
         }
         loop {
-            let frame = self.frame().await;
+            let frame = self.frame(deadline).await;
             if frame["t"] == "event" && frame["name"] == name {
                 return frame["payload"].clone();
             }
@@ -162,8 +170,10 @@ impl Tab {
     /// Waits for a `binding` event in `state` (`active`, `suspended`, `gone`); the
     /// binding events before it are passed over.
     pub async fn saw_binding(&mut self, state: &str) -> Value {
+        // One bound for the whole wait, however many other states pass by.
+        let deadline = Instant::now() + WAIT;
         loop {
-            let event = self.saw("binding").await;
+            let event = self.saw_by("binding", deadline).await;
             if event["state"] == state {
                 return event;
             }
@@ -224,7 +234,7 @@ impl Tab {
         binding
     }
 
-    /// Publishes the 1.8.0 command list ([`capabilities`]) and the place.
+    /// Publishes the 1.8.2 fixtures' command list ([`capabilities`]) and the place.
     pub async fn publish(&mut self) {
         self.must("publishCapabilities", capabilities()).await;
         let place = self.place.clone();

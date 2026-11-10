@@ -17,7 +17,7 @@ Each file is one JSON array or object on one topic. Every example has a `name` t
 
 In this repository, `packages/command-protocol/tests/remote-fixtures.spec.ts` runs `valid`, `invalid`, `future` and `error-class.json` against the protocol (C-109) and checks the form of `sequence` and `command-name.json`; from 1.7.0 the core's specs also run `command-name.json` through `attachRemote`.
 
-`sequence/approval.json` (from 1.8.0) gives each example a `tab` too: `{ level, command, summary, approve? }`, the binding's approval level, the command the tab offers (`name`, `danger`, `effect`, `confirm`, `input`), the summary its run returns and, when an approval card opens, whether the user approves it. Its `replies` are the replies the tab sends, and the core's specs run every example through `attachRemote` and compare them (C-115 to C-118).
+`sequence/approval.json` (from 1.8.0) gives each example a `tab` too: `{ level, command, summary, approve? }`, the binding's approval level, the command the tab offers (`name`, `danger`, `effect`, `confirm`, `input`), the summary its run returns and, when an approval card opens, whether the user approves it. From 1.8.2 a `tab` may also set `expire: true`: the card's two minutes run out first, and the user's `approve`, when given, comes after them. Its `replies` are the replies the tab sends, and the core's specs run every example through `attachRemote` and compare them (C-115 to C-118).
 
 ## Never changed, only added
 

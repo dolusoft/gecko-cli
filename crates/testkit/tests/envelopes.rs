@@ -1,4 +1,4 @@
-//! The testkit's reply constructor against command-console 1.8.0 `valid/replies.json`:
+//! The testkit's reply constructor against command-console 1.8.2 `valid/replies.json`:
 //! every example is built with the constructor and must equal the published envelope,
 //! field for field. A field the contract adds or renames shows up here.
 
@@ -122,7 +122,7 @@ fn built(name: &str) -> Envelope {
 
 #[test]
 fn every_published_reply_is_built_the_same() {
-    let examples = fixture("1.8.0", "valid/replies.json");
+    let examples = fixture("1.8.2", "valid/replies.json");
     let examples = examples.as_array().expect("a list");
     let mut kinds: Vec<String> = Vec::new();
     for example in examples {

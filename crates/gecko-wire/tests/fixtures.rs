@@ -13,7 +13,7 @@ use gecko_wire::request::{Input, check_limits, command_name};
 use serde_json::{Map, Value, json};
 
 /// The fixture folders, oldest first.
-const VERSIONS: [&str; 2] = ["1.7.2", "1.8.0"];
+const VERSIONS: [&str; 2] = ["1.7.2", "1.8.2"];
 
 fn load(version: &str, file: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -22,7 +22,7 @@ fn load(version: &str, file: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
 }
 
-/// The examples of `file` in every version, each with its label (`1.8.0 name`).
+/// The examples of `file` in every version, each with its label (`1.8.2 name`).
 fn examples(file: &str) -> Vec<(String, Value)> {
     VERSIONS
         .iter()

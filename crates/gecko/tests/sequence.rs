@@ -1,4 +1,4 @@
-//! command-console `fixtures/remote/sequence/` (1.7.2 and 1.8.0) against the CLI's run: each
+//! command-console `fixtures/remote/sequence/` (1.7.2 and 1.8.2) against the CLI's run: each
 //! example feeds replies and events in order and checks the exit code and a subset of
 //! the `--json` result. The run is the binary's own module, built here by path.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, dead_code)]
@@ -10,8 +10,15 @@ mod output;
 #[path = "../src/run.rs"]
 mod run;
 mod session {
+    use std::cell::Cell;
+
+    thread_local! {
+        /// The run's clock, which an example with `tab.expire` moves past the card.
+        pub static NOW: Cell<u64> = const { Cell::new(0) };
+    }
+
     pub fn now_ms() -> u64 {
-        0
+        NOW.with(Cell::get)
     }
 }
 
@@ -19,10 +26,34 @@ use gecko_wire::reply::{Read, read_value};
 use run::{Event, Run, Step};
 use serde_json::Value;
 
+/// The fields of an example's `tab` this runner knows (1.8.2 `remote/README.md`); a
+/// new one fails here instead of being passed over.
+const TAB_FIELDS: [&str; 5] = ["level", "command", "summary", "approve", "expire"];
+
 fn feed(example: &Value) -> output::Outcome {
+    session::NOW.with(|now| now.set(0));
+    if let Some(tab) = example.get("tab").and_then(Value::as_object) {
+        for key in tab.keys() {
+            assert!(
+                TAB_FIELDS.contains(&key.as_str()),
+                "{}: tab.{key} is new",
+                example["name"]
+            );
+        }
+    }
+    // `tab.expire`: the card's time runs out before the tab's last word.
+    let expire = example["tab"]["expire"] == true;
     let danger_change = example["danger"] != "read";
     let mut run = Run::new(danger_change);
     for item in example["replies"].as_array().unwrap() {
+        if expire && item["kind"] == "finished" {
+            // The card is over before the tab's word; the run still waits for that
+            // word, it does not end on its own clock.
+            let end = run
+                .approval_expires_at()
+                .unwrap_or_else(|| panic!("{}: expire without a card", example["name"]));
+            session::NOW.with(|now| now.set(end as u64 + 1));
+        }
         let event = match item.get("event").and_then(Value::as_str) {
             Some("connection-lost") => Event::Lost("the hub connection was lost".into()),
             Some("timeout") => Event::DeliveryTimeout,
@@ -109,5 +140,7 @@ fn sequences_of(version: &str) -> usize {
 fn sequences() {
     assert_eq!(sequences_of("1.7.2"), 19);
     // 1.8.0 adds `approval.json`: the `approval` field, `--dry-run` and `--yes`.
-    assert_eq!(sequences_of("1.8.0"), 26);
+    // 1.8.2 adds the expired card: `change-server-card-expired` and
+    // `change-server-card-approved-late` (`tab.expire`).
+    assert_eq!(sequences_of("1.8.2"), 28);
 }

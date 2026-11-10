@@ -224,7 +224,7 @@ impl Tab {
         binding
     }
 
-    /// Publishes the 1.8.0 command list ([`capabilities`]) and the place.
+    /// Publishes the 1.8.2 fixtures' command list ([`capabilities`]) and the place.
     pub async fn publish(&mut self) {
         self.must("publishCapabilities", capabilities()).await;
         let place = self.place.clone();

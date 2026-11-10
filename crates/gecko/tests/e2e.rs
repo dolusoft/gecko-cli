@@ -349,45 +349,64 @@ async fn a_lost_hub_during_the_approval_exits_5() {
     }
 }
 
+/// The last reply (`finished`) of a 1.8.2 `sequence/approval.json` example.
+fn approval_finished(name: &str) -> Value {
+    let examples = fixture("1.8.2", "sequence/approval.json");
+    let example = examples
+        .as_array()
+        .and_then(|list| list.iter().find(|example| example["name"] == name))
+        .unwrap_or_else(|| panic!("sequence/approval.json has {name}"));
+    let last = example["replies"]
+        .as_array()
+        .and_then(|replies| replies.last())
+        .expect("replies");
+    assert_eq!(last["kind"], "finished", "{name}");
+    last.clone()
+}
+
 #[tokio::test]
 async fn an_expired_approval_exits_3() {
-    for json in [false, true] {
-        let mut card = open_card(json).await;
-        // command-console 1.8.x: an expired card ends as `not-allowed` (class
-        // `denied`) and suggests the command again, without the approval field
-        // (1.8.2 `change-server-card-expired`; not yet in the fixtures here).
-        let expired = Finished::error(
-            "not-allowed",
-            "denied",
-            Some("The approval expired; nothing changed."),
-        )
-        .suggest(&["tasks.stop", "--id", "8812"]);
-        card.tab.reply(&expired.envelope(&card.request.id)).await;
-        let output = card.run.output().await;
-        output.expect_code(3);
-        if json {
-            let result = output.json();
-            assert_eq!(result["status"], "error", "{output}");
-            assert_eq!(result["code"], "not-allowed", "{output}");
-            assert_eq!(result["exitCode"], 3, "{output}");
-            assert_eq!(
-                result["suggest"],
-                json!(["tasks.stop", "--id", "8812"]),
-                "{output}"
-            );
-            assert!(result.get("approval").is_none(), "{output}");
-        } else {
-            assert_eq!(output.stdout, "", "{output}");
-            assert_eq!(
-                output.stderr,
-                format!(
-                    "{WAIT_LINE}\nerror (not-allowed): The approval expired; nothing changed.\nDid you mean: gecko tasks.stop --id 8812\n"
-                ),
-                "{output}"
-            );
+    // command-console 1.8.2: a card that runs out ends as `not-allowed` (class
+    // `denied`) and suggests the command again, without the approval field; an
+    // approval pressed after the end changes nothing.
+    for name in [
+        "change-server-card-expired",
+        "change-server-card-approved-late",
+    ] {
+        for json in [false, true] {
+            expired_card(name, json).await;
         }
-        card.hub.stop();
     }
+}
+
+async fn expired_card(name: &str, json: bool) {
+    let mut card = open_card(json).await;
+    let expired = replay(&approval_finished(name), &card.request.id);
+    card.tab.reply(&expired).await;
+    let output = card.run.output().await;
+    output.expect_code(3);
+    if json {
+        let result = output.json();
+        assert_eq!(result["status"], "error", "{output}");
+        assert_eq!(result["code"], "not-allowed", "{output}");
+        assert_eq!(result["exitCode"], 3, "{output}");
+        assert_eq!(
+            result["suggest"],
+            json!(["tasks.stop", "--id", "8812"]),
+            "{output}"
+        );
+        assert!(result.get("approval").is_none(), "{output}");
+    } else {
+        assert_eq!(output.stdout, "", "{output}");
+        assert_eq!(
+            output.stderr,
+            format!(
+                "{WAIT_LINE}\nerror (not-allowed): The approval expired; nothing changed.\nDid you mean: gecko tasks.stop --id 8812\n"
+            ),
+            "{output}"
+        );
+    }
+    card.hub.stop();
 }
 
 #[tokio::test]
@@ -789,14 +808,29 @@ async fn the_token_is_renewed_30_s_before_it_ends() {
 }
 
 /// `icacls` of `token.json`: inheritance removed, one entry, the user's, full control.
+///
+/// As for a user, the CLI makes its config directory itself (`%APPDATA%\gecko-cli`
+/// does not exist before the first attach) and gives it to the user alone. A
+/// directory made beforehand, under a parent with no inheritable entries, keeps the
+/// explicit entries a new file gets there (`SYSTEM`, `Administrators`); that case is
+/// not this test's (seen on the CI's Windows runner).
 #[cfg(windows)]
 #[tokio::test]
 async fn the_token_file_is_the_users_alone() {
     let hub = Hub::start();
     let mut tab = Tab::open(&hub, "p1").await;
     let cli = Cli::new(GECKO);
-    connect(&hub, &cli, &mut tab, "ask-server").await;
-    let path = cli.dir().join("token.json");
+    let dir = cli.dir().join("gecko-cli");
+    let dir_text = dir.display().to_string();
+    let code = tab.attach_code("ask-server").await;
+    cli.call(["attach", "-", "--trust-hub"])
+        .env("GECKO_CONFIG_DIR", &dir_text)
+        .stdin(&format!("{code}\n"))
+        .output()
+        .await
+        .expect_code(0);
+    tab.bound().await;
+    let path = dir.join("token.json");
     let listed = std::process::Command::new("icacls")
         .arg(&path)
         .output()
@@ -829,14 +863,15 @@ async fn the_token_file_is_the_users_alone() {
     hub.stop();
 }
 
-// --- command-console 1.8.0 `sequence/`, end to end -----------------------------------
+// --- command-console 1.8.2 `sequence/`, end to end -----------------------------------
 
-/// Plays every example of one 1.8.0 `sequence/` file through the real binary and the
+/// Plays every example of one 1.8.2 `sequence/` file through the real binary and the
 /// real hub: the fake tab sends each example's `replies` as they are; `connection-lost`
 /// stops the hub, `timeout` is silence past a short delivery window, `ctrl-c` is the
-/// test hook and waits for the CLI's `cancel`. Returns how many examples ran.
+/// test hook and waits for the CLI's `cancel`; `tab.expire` lets the card run out
+/// before the tab's last word. Returns how many examples ran.
 async fn sequences(file: &str) -> usize {
-    let examples = fixture("1.8.0", &format!("sequence/{file}"));
+    let examples = fixture("1.8.2", &format!("sequence/{file}"));
     let examples = examples.as_array().expect("a list of examples");
     for example in examples {
         play(file, example).await;
@@ -849,6 +884,7 @@ async fn play(file: &str, example: &Value) {
     let replies = example["replies"].as_array().expect("replies");
     let event = |wanted: &str| replies.iter().any(|item| item["event"] == wanted);
     let timeout = event("timeout");
+    let expire = example["tab"]["expire"] == true;
     let hub = Hub::with(|options| {
         if timeout {
             options.timings.request_ttl_ms = 300.0;
@@ -894,7 +930,16 @@ async fn play(file: &str, example: &Value) {
                 saw_cancel(&mut tab, &request).await;
             }
             Some(other) => panic!("{name}: unknown event {other}"),
-            None => tab.reply(&replay(item, &request.id)).await,
+            None => {
+                tab.reply(&replay(item, &request.id)).await;
+                // `tab.expire`: the card's time runs out before the tab's last word.
+                // The example's `expiresAt` is on its own clock, long past on ours:
+                // once the CLI shows the card with no time left, it must still wait
+                // for the tab (each later reply checks it is there to take it).
+                if expire && item["kind"] == "awaiting-approval" {
+                    run.stderr_until("Waiting for approval (~0 s)").await;
+                }
+            }
         }
     }
     let output = run.output().await;
@@ -917,7 +962,9 @@ async fn play(file: &str, example: &Value) {
 
 #[tokio::test]
 async fn sequence_approval() {
-    assert_eq!(sequences("approval.json").await, 7);
+    // 1.8.2: with the expired card (`change-server-card-expired`,
+    // `change-server-card-approved-late`).
+    assert_eq!(sequences("approval.json").await, 9);
 }
 
 #[tokio::test]

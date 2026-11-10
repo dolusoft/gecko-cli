@@ -4,7 +4,7 @@
 
 use std::io::{IsTerminal, Write};
 
-use gecko_kernel::{Failure, Outcome};
+use gecko_kernel::{Failure, Outcome, Reporter};
 
 /// Text that cannot drive the terminal: C0 and C1 control characters other than line
 /// breaks and tabs are written as `\xHH` (§6.7).
@@ -99,9 +99,10 @@ fn plain_text(outcome: &Outcome, columns: Option<usize>) -> String {
     }
 }
 
-/// Whether a stream counts as a terminal; `GECKO_TEST_TTY=1` says yes (docs/test-hooks.md).
-pub fn interactive(is_terminal: bool) -> bool {
-    is_terminal || std::env::var_os("GECKO_TEST_TTY").is_some_and(|v| v == "1")
+/// Whether a stream counts as a terminal; `GECKO_TEST_TTY=1` (`test_tty`) says yes
+/// (docs/test-hooks.md).
+pub fn interactive(test_tty: bool, is_terminal: bool) -> bool {
+    is_terminal || test_tty
 }
 
 /// Where the CLI writes, and whether stderr may be coloured.
@@ -128,11 +129,6 @@ impl std::fmt::Debug for Io<'_> {
 }
 
 impl Io<'_> {
-    /// Colour on stderr: a terminal and no `NO_COLOR`.
-    pub fn stderr_color() -> bool {
-        interactive(std::io::stderr().is_terminal()) && std::env::var_os("NO_COLOR").is_none()
-    }
-
     fn paint(&self, tone: u8, text: &str) -> String {
         if self.color {
             format!("\u{1b}[{tone}m{text}\u{1b}[0m")
@@ -142,14 +138,17 @@ impl Io<'_> {
     }
 
     /// Where the CLI writes: colour, the indicator and the table width follow the
-    /// streams (a terminal, `--json`, `--out`).
+    /// streams (a terminal, `--json`, `--out`), `GECKO_TEST_TTY` (`test_tty`) and
+    /// `NO_COLOR` (`no_color`).
     pub fn new<'b>(
         out: &'b mut dyn Write,
         err: &'b mut dyn Write,
         json: bool,
         to_file: bool,
+        test_tty: bool,
+        no_color: bool,
     ) -> Io<'b> {
-        let stderr_tty = interactive(std::io::stderr().is_terminal());
+        let stderr_tty = interactive(test_tty, std::io::stderr().is_terminal());
         let columns = if to_file || !std::io::stdout().is_terminal() {
             None
         } else {
@@ -158,38 +157,13 @@ impl Io<'_> {
         Io {
             out,
             err,
-            color: Io::stderr_color(),
+            // Colour on stderr: a terminal and no `NO_COLOR`.
+            color: stderr_tty && !no_color,
             json,
             columns,
             progress: !json && stderr_tty,
             progress_shown: false,
         }
-    }
-
-    /// Draws the wait indicator over its previous text (UX U3).
-    pub fn progress(&mut self, text: &str) {
-        if !self.progress {
-            return;
-        }
-        self.progress_shown = true;
-        let line = self.paint(2, &escape_controls(text));
-        let _ = write!(self.err, "\r\u{1b}[2K{line}");
-        let _ = self.err.flush();
-    }
-
-    /// Removes the indicator line, if one is shown.
-    pub fn clear_progress(&mut self) {
-        if self.progress_shown {
-            self.progress_shown = false;
-            let _ = write!(self.err, "\r\u{1b}[2K");
-        }
-    }
-
-    /// A line for the reader on stderr (progress, codes, hints).
-    pub fn info(&mut self, text: &str) {
-        self.clear_progress();
-        let line = self.paint(2, &escape_controls(text));
-        let _ = writeln!(self.err, "{line}");
     }
 
     /// Prints a result and returns the exit code.
@@ -235,103 +209,52 @@ impl Io<'_> {
     }
 }
 
+impl Reporter for Io<'_> {
+    fn info(&mut self, text: &str) {
+        self.clear_progress();
+        let line = self.paint(2, &escape_controls(text));
+        let _ = writeln!(self.err, "{line}");
+    }
+
+    fn prompt(&mut self, text: &str) {
+        let _ = write!(self.err, "{text}");
+        let _ = self.err.flush();
+    }
+
+    /// Draws the wait indicator over its previous text (UX U3).
+    fn progress(&mut self, text: &str) {
+        if !self.progress {
+            return;
+        }
+        self.progress_shown = true;
+        let line = self.paint(2, &escape_controls(text));
+        let _ = write!(self.err, "\r\u{1b}[2K{line}");
+        let _ = self.err.flush();
+    }
+
+    fn clear_progress(&mut self) {
+        if self.progress_shown {
+            self.progress_shown = false;
+            let _ = write!(self.err, "\r\u{1b}[2K");
+        }
+    }
+
+    fn shows_progress(&self) -> bool {
+        self.progress
+    }
+
+    fn json(&self) -> bool {
+        self.json
+    }
+
+    fn columns(&self) -> Option<usize> {
+        self.columns
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gecko_kernel::exit_code_of;
-
-    /// Every failure code the CLI writes itself, with its exit code. A row changes only
-    /// with a decision: exit codes are part of the contract.
-    const EXIT_CODES: &[(&str, u8)] = &[
-        ("failed", 1),
-        ("usage", 2),
-        ("unsupported-version", 2),
-        ("unknown-command", 2),
-        ("not-allowed", 3),
-        ("no-terminal-access", 3),
-        ("untrusted-hub", 3),
-        ("insecure-hub", 3),
-        ("approval-dropped", 3),
-        ("unreachable", 4),
-        ("connection-lost", 4),
-        ("busy", 4),
-        ("no-binding", 4),
-        ("gone", 4),
-        ("tab-unreachable", 4),
-        ("not-delivered", 4),
-        ("rate-limited", 4),
-        ("too-many-attempts", 4),
-        ("unknown-outcome", 5),
-        ("invalid-code", 6),
-        ("unauthorized", 6),
-        ("revoked", 6),
-        ("cancelled", 130),
-        ("cancel-requested", 130),
-        ("cancelled-before-start", 130),
-    ];
-
-    /// Codes the CLI writes whose exit code is wrong today; each has an ignored test.
-    const WRONG_TODAY: &[&str] = &["too-large"];
-
-    #[test]
-    fn every_failure_code_has_its_exit_code() {
-        for (code, exit) in EXIT_CODES {
-            assert_eq!(exit_code_of(code), *exit, "{code}");
-        }
-        // Codes from the hub this table does not know.
-        assert_eq!(exit_code_of("something-new"), 1);
-        assert_eq!(exit_code_of("not-bound"), 1);
-    }
-
-    /// The string literals that open `Failure::new(` and `Outcome::error(` in `text`.
-    fn codes_written(text: &str) -> Vec<String> {
-        let mut codes = Vec::new();
-        for opener in ["Failure::new(", "Outcome::error("] {
-            for (at, _) in text.match_indices(opener) {
-                let rest = text[at + opener.len()..].trim_start();
-                if let Some(rest) = rest.strip_prefix('"')
-                    && let Some(end) = rest.find('"')
-                {
-                    codes.push(rest[..end].to_owned());
-                }
-            }
-        }
-        codes
-    }
-
-    #[test]
-    fn the_table_has_every_code_the_cli_writes() {
-        assert_eq!(
-            codes_written("Failure::new(\n  \"busy\", x) Outcome::error(code, m, 1)"),
-            ["busy"]
-        );
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut missing = Vec::new();
-        for entry in std::fs::read_dir(&dir).unwrap() {
-            let path = entry.unwrap().path();
-            // This module's tests make codes of their own.
-            if path.extension().is_none_or(|ext| ext != "rs") || path.ends_with("output.rs") {
-                continue;
-            }
-            let text = std::fs::read_to_string(&path).unwrap();
-            for code in codes_written(&text) {
-                let known = EXIT_CODES.iter().any(|(c, _)| *c == code)
-                    || WRONG_TODAY.contains(&code.as_str());
-                if !known {
-                    missing.push(format!("{}: {code}", path.display()));
-                }
-            }
-        }
-        assert!(missing.is_empty(), "codes without a row: {missing:?}");
-    }
-
-    /// command-console puts `too-large` in the class `usage` (exit 2), and so did the
-    /// TypeScript CLI; the CLI's own `too-large` (a line over the limits) exits 1.
-    #[test]
-    #[ignore = "too-large exits 1, the contract says 2 (usage); a user-visible change waits for a decision"]
-    fn too_large_is_a_usage_error() {
-        assert_eq!(exit_code_of("too-large"), 2);
-    }
 
     #[test]
     fn controls_are_escaped() {

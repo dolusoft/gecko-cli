@@ -2,11 +2,11 @@
 //! attach spec §10.2) and the token's refresh. Requests follow the CLI's proxy rule;
 //! the token never goes into an address.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use gecko_hub_client::net;
 use gecko_hub_client::proxy::ProxyRule;
-use gecko_kernel::{BIND_AGAIN, Failure};
+use gecko_kernel::{BIND_AGAIN, Clock, Failure};
 use serde_json::{Map, Value};
 use url::Url;
 
@@ -14,13 +14,6 @@ use crate::code;
 use crate::config::{Config, StoredToken, User};
 
 const CLIENT_ID: &str = "gecko-cli";
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-        .unwrap_or(0)
-}
 
 /// One hub's HTTP routes.
 #[derive(Debug, Clone)]
@@ -85,7 +78,7 @@ impl Auth {
 
     /// Spends the code's secret: the hub binds the tab that made it and answers with
     /// the binding's tokens.
-    pub async fn attach(&self, secret: &str) -> Result<StoredToken, Failure> {
+    pub async fn attach(&self, secret: &str, clock: &impl Clock) -> Result<StoredToken, Failure> {
         let body = serde_json::json!({ "secret": secret }).to_string();
         let answer = self.post("/cli/attach", "application/json", body).await?;
         if answer.status != 200 {
@@ -126,7 +119,7 @@ impl Auth {
         Ok(StoredToken {
             hub: self.hub.clone(),
             access_token: text("access_token").ok_or_else(malformed)?,
-            access_expires_at: expires_at(&answer.body),
+            access_expires_at: expires_at(&answer.body, clock.now_ms()),
             refresh_token: text("refresh_token").ok_or_else(malformed)?,
             grant_id: text("grantId").ok_or_else(malformed)?,
             binding_id: text("bindingId").ok_or_else(malformed)?,
@@ -142,8 +135,9 @@ impl Auth {
         config: &Config,
         token: StoredToken,
         force: bool,
+        clock: &impl Clock,
     ) -> Result<StoredToken, Failure> {
-        if !force && token.access_expires_at.saturating_sub(now_ms()) > 30_000 {
+        if !force && token.access_expires_at.saturating_sub(clock.now_ms()) > 30_000 {
             return Ok(token);
         }
         let answer = self
@@ -177,7 +171,7 @@ impl Auth {
             .ok_or_else(|| Failure::new("failed", "the hub's token answer is incomplete"))?;
         let next = StoredToken {
             access_token: access_token.to_owned(),
-            access_expires_at: expires_at(&answer.body),
+            access_expires_at: expires_at(&answer.body, clock.now_ms()),
             refresh_token: answer
                 .body
                 .get("refresh_token")
@@ -192,12 +186,13 @@ impl Auth {
     }
 }
 
-fn expires_at(body: &Map<String, Value>) -> u64 {
+/// When the access token in `body` expires, counted from `now` (ms since the epoch).
+fn expires_at(body: &Map<String, Value>, now: u64) -> u64 {
     let seconds = body
         .get("expires_in")
         .and_then(Value::as_f64)
         .unwrap_or(0.0);
-    now_ms() + u64::try_from(bounded(seconds).as_millis()).unwrap_or(0)
+    now + u64::try_from(bounded(seconds).as_millis()).unwrap_or(0)
 }
 
 /// Seconds from the server, bounded: negative or absurd values do not stall the CLI.

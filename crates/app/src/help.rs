@@ -3,19 +3,18 @@
 //! command is not open to the CLI; the CLI sends a `help-request` with the raw
 //! arguments and prints the tab's `help-result` (command-console 1.7.0).
 
-use gecko_hub_client::Transport;
-use gecko_hub_protocol::{Closed, HubEvent};
-use gecko_kernel::{BIND_AGAIN, Failure, Outcome};
+use gecko_hub_protocol::failure::lost_failure;
+use gecko_hub_protocol::{Closed, HubConnection, HubEvent};
+use gecko_kernel::{BIND_AGAIN, Clock, Failure, IdSource, Interrupts, Outcome, Reporter};
 use gecko_wire::reply::{HelpResult, Read, Reply, Status, read_value};
 use gecko_wire::request;
 use serde_json::Value;
 use tokio::time::sleep_until;
 
 use crate::config::Config;
-use crate::interrupt::Interrupts;
-use crate::line::{Sent, capabilities_of, live_binding, new_id, send};
-use crate::output::Io;
-use crate::session::{self, Session, lost_failure};
+use crate::line::{Sent, capabilities_of, live_binding, send};
+use crate::ports::Ports;
+use crate::session::{self, Session};
 
 /// The last line under a list of commands.
 pub const FOOTER: &str = "CLI options come before the command name: gecko --json <command> ...; the full output with --json.";
@@ -34,15 +33,16 @@ pub enum Answer {
 
 /// Sends one `help-request` and waits for its `help-result`. Help changes nothing,
 /// so a lost answer is safe to ask again.
-pub async fn ask(
-    session: &mut Session,
+pub async fn ask<H: HubConnection>(
+    session: &mut Session<H>,
+    ports: &Ports<impl Clock, impl IdSource>,
     v: u64,
     argv: &[String],
     json_wanted: bool,
     width: Option<u16>,
-    interrupts: &mut Interrupts,
+    interrupts: &mut impl Interrupts,
 ) -> Result<Answer, Failure> {
-    let id = new_id();
+    let id = ports.ids.new_id();
     let envelope = request::help_request(v, &id, argv, json_wanted, width);
     let stamp = match send(session, &envelope).await {
         Ok(stamp) => stamp,
@@ -50,7 +50,7 @@ pub async fn ask(
         Err(Sent::Lost(why)) => return Ok(Answer::Lost(why)),
         Err(Sent::Revoked) => return Ok(Answer::Revoked),
     };
-    let deadline = stamp.delivery_deadline();
+    let deadline = stamp.delivery_deadline(ports.settings.delivery_margin);
     loop {
         tokio::select! {
             event = session.hub.next_event() => match event {
@@ -151,32 +151,34 @@ pub fn outcome_of(help: &HelpResult, json: bool) -> Outcome {
 pub async fn run(
     args: &[String],
     config: &Config,
-    io: &mut Io<'_>,
-    interrupts: &mut Interrupts,
+    ports: &Ports<impl Clock, impl IdSource>,
+    io: &mut impl Reporter,
+    interrupts: &mut impl Interrupts,
 ) -> Result<Outcome, Failure> {
-    let mut session = session::open(config).await?;
-    let result = run_in(&mut session, args, io, interrupts).await;
+    let mut session = session::open(config, ports).await?;
+    let result = run_in(&mut session, ports, args, io, interrupts).await;
     session.hub.close().await;
     result
 }
 
-async fn run_in(
-    session: &mut Session,
+async fn run_in<H: HubConnection>(
+    session: &mut Session<H>,
+    ports: &Ports<impl Clock, impl IdSource>,
     args: &[String],
-    io: &mut Io<'_>,
-    interrupts: &mut Interrupts,
+    io: &mut impl Reporter,
+    interrupts: &mut impl Interrupts,
 ) -> Result<Outcome, Failure> {
-    let caps = capabilities_of(live_binding(session)?)?;
+    let caps = capabilities_of(live_binding(session)?, ports.cli_version)?;
     let v = caps.envelope().unwrap_or(1);
-    let width = io.columns.and_then(|c| u16::try_from(c).ok());
-    let answer = ask(session, v, args, io.json, width, interrupts).await?;
+    let width = io.columns().and_then(|c| u16::try_from(c).ok());
+    let answer = ask(session, ports, v, args, io.json(), width, interrupts).await?;
     if let Some(outcome) = ended(&answer) {
         return Ok(outcome);
     }
     let Answer::Result(help) = answer else {
         return Err(Failure::new("failed", "no help result"));
     };
-    Ok(outcome_of(&help, io.json))
+    Ok(outcome_of(&help, io.json()))
 }
 
 /// `help …` as a line (`--line "help tasks"`): its words, split at white space.

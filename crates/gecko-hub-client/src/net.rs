@@ -34,6 +34,30 @@ pub fn install_crypto_provider() {
     });
 }
 
+/// `gecko/<version> (<platform>)`: how the CLI names itself to every server (§5.7).
+pub fn user_agent() -> String {
+    format!(
+        "gecko/{} ({}; {})",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    )
+}
+
+/// An HTTP client for requests to `target`: rustls with ring and the system verifier,
+/// and the proxy the CLI's rule picks for that address (reqwest's own lookup is off, so
+/// HTTP and WebSocket never disagree).
+pub fn http_client(target: &Url, proxy: &ProxyRule) -> Result<reqwest::Client, String> {
+    install_crypto_provider();
+    let mut builder = reqwest::Client::builder()
+        .user_agent(user_agent())
+        .no_proxy();
+    if let Some(via) = proxy.proxy_for(target)? {
+        builder = builder.proxy(reqwest::Proxy::all(via.as_str()).map_err(|e| e.to_string())?);
+    }
+    builder.build().map_err(|error| error.to_string())
+}
+
 fn tls_config() -> io::Result<Arc<rustls::ClientConfig>> {
     install_crypto_provider();
     let mut config = rustls::ClientConfig::with_platform_verifier()

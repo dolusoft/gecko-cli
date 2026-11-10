@@ -47,7 +47,7 @@ impl DevOptions {
             token: token.into(),
             connect_timeout: Duration::from_secs(10),
             invoke_timeout: Duration::from_secs(10),
-            user_agent: concat!("gecko/", env!("CARGO_PKG_VERSION")).to_owned(),
+            user_agent: net::user_agent(),
         }
     }
 }

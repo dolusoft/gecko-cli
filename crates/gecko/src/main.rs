@@ -1,16 +1,26 @@
 //! `gecko`: the remote control of the Gecko web terminal. A line typed here runs in the
 //! bound browser tab, and the result comes back (docs/rust-migration.md).
 //!
-//! This is the skeleton of step 4: options, help, version and the dev-hub switch. The
-//! command path arrives in step 4b; until then the Node build is the product.
+//! Step 4b in progress: options, help, version, the dev-hub switch, login and logout.
+//! The binding commands and the line path follow; until step 5 the Node build is the
+//! product.
 
 mod args;
+mod auth;
+mod browser;
+mod config;
+mod interrupt;
+mod output;
+mod own;
 
 use std::ffi::OsString;
 use std::io::Write;
 use std::process::ExitCode;
 
-use args::{Action, ArgError};
+use args::{Action, ArgError, Options};
+use config::Config;
+use interrupt::Interrupts;
+use output::{Failure, Io};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -52,7 +62,7 @@ fn main() -> ExitCode {
 }
 
 fn run(args: impl IntoIterator<Item = OsString>, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
-    let (_options, action) = match args::parse(args) {
+    let (options, action) = match args::parse(args) {
         Ok(parsed) => parsed,
         Err(error) => return usage_error(err, &error),
     };
@@ -66,14 +76,51 @@ fn run(args: impl IntoIterator<Item = OsString>, out: &mut dyn Write, err: &mut 
             0
         }
         Action::DevHub(rest) => dev_hub(&rest, err),
-        Action::Command(argv) => {
-            let _ = writeln!(
-                err,
-                "gecko {VERSION}: `{}` is not available in the Rust build yet (step 4b); use the Node build.",
-                argv[0]
-            );
-            2
+        Action::Command(argv) => command(&argv, &options, out, err),
+    }
+}
+
+/// An own command or a line for the tab.
+fn command(argv: &[String], options: &Options, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
+    let name = argv[0].as_str();
+    let rest = &argv[1..];
+    if own::NAMES.contains(&name) && rest.iter().any(|a| a == "--help" || a == "-h") {
+        let _ = out.write_all(own::usage(name).unwrap_or_default().as_bytes());
+        return 0;
+    }
+    if !matches!(name, "login" | "logout") {
+        let _ = writeln!(
+            err,
+            "gecko {VERSION}: `{name}` is not available in the Rust build yet (step 4b); use the Node build."
+        );
+        return 2;
+    }
+    let mut io = Io {
+        out,
+        err,
+        color: Io::stderr_color(),
+        json: options.json,
+    };
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => return io.fail(&Failure::new("failed", format!("cannot start: {error}"))),
+    };
+    let config = Config::from_env();
+    let result = runtime.block_on(async {
+        let mut interrupts = Interrupts::listen();
+        match name {
+            "login" => own::login(rest, options, &config, &mut io, &mut interrupts).await,
+            _ => own::logout(rest, options, &config).await,
         }
+    });
+    // A blocking stdin read (the test interrupt hook) must not hold the process open.
+    runtime.shutdown_background();
+    match result {
+        Ok(outcome) => io.emit(&outcome),
+        Err(failure) => io.fail(&failure),
     }
 }
 

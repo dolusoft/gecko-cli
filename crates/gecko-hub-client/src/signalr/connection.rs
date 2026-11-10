@@ -54,7 +54,7 @@ impl Options {
             server_timeout: Duration::from_secs(30),
             handshake_timeout: Duration::from_secs(15),
             invoke_timeout: Duration::from_secs(10),
-            user_agent: concat!("gecko/", env!("CARGO_PKG_VERSION")).to_owned(),
+            user_agent: net::user_agent(),
             proxy: ProxyRule::from_env(),
             handshake: protocol::HANDSHAKE_REQUEST.to_owned(),
         }
@@ -250,17 +250,9 @@ async fn negotiate(options: &Options) -> Result<(Url, String), Closed> {
         negotiate_url
             .query_pairs_mut()
             .append_pair("negotiateVersion", "1");
-        // reqwest's own proxy lookup is off: the CLI's rule decides, per address, so a
-        // redirect to another host gets its own answer.
-        let mut client = reqwest::Client::builder()
-            .user_agent(options.user_agent.clone())
-            .no_proxy();
-        if let Some(proxy) = options.proxy.proxy_for(&negotiate_url).map_err(transport)? {
-            client = client.proxy(reqwest::Proxy::all(proxy.as_str()).map_err(transport)?);
-        }
-        let response = client
-            .build()
-            .map_err(transport)?
+        // One client per address: a redirect to another host gets its own proxy answer.
+        let response = net::http_client(&negotiate_url, &options.proxy)
+            .map_err(Closed::Transport)?
             .post(negotiate_url)
             .bearer_auth(&token)
             .send()

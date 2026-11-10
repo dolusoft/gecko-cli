@@ -21,6 +21,11 @@ dev-hub = ["dep:gecko-dev-hub"]
 gecko-dev-hub = { workspace = true, optional = true }
 gecko-hub-client.workspace = true
 gecko-wire.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true

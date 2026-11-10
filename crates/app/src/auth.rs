@@ -6,16 +6,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use gecko_hub_client::net;
 use gecko_hub_client::proxy::ProxyRule;
+use gecko_kernel::{BIND_AGAIN, Failure};
 use serde_json::{Map, Value};
 use url::Url;
 
 use crate::code;
 use crate::config::{Config, StoredToken, User};
-use crate::output::Failure;
 
 const CLIENT_ID: &str = "gecko-cli";
-
-pub use crate::output::BIND_AGAIN;
 
 fn now_ms() -> u64 {
     SystemTime::now()

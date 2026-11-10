@@ -24,8 +24,9 @@ use std::process::ExitCode;
 
 use args::{Action, ArgError, Options};
 use config::Config;
+use gecko_kernel::Failure;
 use interrupt::Interrupts;
-use output::{Failure, Io};
+use output::Io;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 

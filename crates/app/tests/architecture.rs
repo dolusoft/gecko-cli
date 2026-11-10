@@ -42,7 +42,9 @@ enum Role {
 /// Every workspace crate by package name, with its role.
 const ROLES: &[(&str, Role)] = &[
     ("gecko", Role::Legacy),
+    ("gecko-kernel", Role::Kernel),
     ("gecko-wire", Role::Protocol),
+    ("gecko-hub-protocol", Role::Protocol),
     ("gecko-hub-client", Role::AdapterLib),
     ("gecko-dev-hub", Role::DevTool),
     ("gecko-testkit", Role::TestSupport),

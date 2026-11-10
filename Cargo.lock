@@ -230,6 +230,8 @@ dependencies = [
  "futures-util",
  "gecko-dev-hub",
  "gecko-hub-client",
+ "gecko-hub-protocol",
+ "gecko-kernel",
  "gecko-testkit",
  "gecko-wire",
  "reqwest",
@@ -261,6 +263,7 @@ name = "gecko-hub-client"
 version = "0.3.0"
 dependencies = [
  "futures-util",
+ "gecko-hub-protocol",
  "percent-encoding",
  "reqwest",
  "rustls",
@@ -272,6 +275,22 @@ dependencies = [
  "tokio-tungstenite",
  "url",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "gecko-hub-protocol"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "gecko-kernel"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -10,6 +10,7 @@ repository.workspace = true
 
 [dependencies]
 futures-util.workspace = true
+gecko-hub-protocol.workspace = true
 percent-encoding.workspace = true
 reqwest.workspace = true
 rustls.workspace = true

@@ -7,34 +7,21 @@ use std::io::IsTerminal;
 use std::time::{Duration, Instant};
 
 use gecko_hub_client::Transport;
-use gecko_hub_client::hub::{Binding, BindingState, User, Where};
 use gecko_hub_client::proxy::ProxyRule;
+use gecko_hub_protocol::hub::{Binding, BindingState, User, Where};
+use gecko_kernel::{Failure, Outcome, gone_message};
 use serde::Serialize;
 
 use crate::args::Options;
-use crate::auth::{Auth, BIND_AGAIN};
+use crate::auth::Auth;
 use crate::code;
 use crate::config::Config;
 use crate::interrupt::Interrupts;
-use crate::output::{Failure, Io, Outcome, interactive};
+use crate::output::{Io, interactive};
 use crate::session::{self, now_ms};
 
 /// How long ending the previous binding may take before `attach` goes on without it.
 const OLD_BINDING_WAIT: Duration = Duration::from_secs(5);
-
-/// Why a binding ended, for the reader; the hub's `reason` stays the machine value.
-pub fn gone_message(reason: Option<&str>) -> String {
-    let why = match reason.unwrap_or("") {
-        "replaced" => "the tab was bound again with a new code",
-        "closed" => "the bound tab was closed",
-        "detached" => "the binding was removed",
-        "logged-out" => "the browser session was signed out",
-        "revoked" => "the CLI access was revoked in the profile",
-        "suspended-timeout" => "the bound tab did not come back within 60 s",
-        _ => "the binding ended",
-    };
-    format!("{why}; {BIND_AGAIN}")
-}
 
 /// What a level means, in a few words (attach spec §5.2).
 pub fn level_text(level: &str) -> String {

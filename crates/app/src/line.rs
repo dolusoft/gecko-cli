@@ -7,8 +7,10 @@
 
 use std::time::Duration;
 
-use gecko_hub_client::hub::{Binding, BindingState};
-use gecko_hub_client::{CallError, Closed, HubEvent, Transport};
+use gecko_hub_client::Transport;
+use gecko_hub_protocol::hub::{Binding, BindingState};
+use gecko_hub_protocol::{CallError, Closed, HubEvent};
+use gecko_kernel::{Failure, Outcome, gone_message};
 use gecko_wire::capabilities::{Capabilities, Effect, read_parts, version_below};
 use gecko_wire::reply::{Read, Status, read_value};
 use gecko_wire::request::{self, Input, check_limits, command_name, fits};
@@ -17,11 +19,10 @@ use serde_json::Value;
 use tokio::time::{Instant, sleep_until};
 
 use crate::args::Options;
-use crate::binding::gone_message;
 use crate::config::Config;
 use crate::help;
 use crate::interrupt::Interrupts;
-use crate::output::{Failure, Io, Outcome};
+use crate::output::Io;
 use crate::run::{Event, Run, Step};
 use crate::session::{self, Session, call_failure, lost_failure, no_binding};
 

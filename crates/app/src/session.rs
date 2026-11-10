@@ -4,18 +4,19 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use gecko_hub_client::Transport;
 use gecko_hub_client::dev::{DevOptions, DevTransport};
-use gecko_hub_client::hub::HubStatus;
 use gecko_hub_client::proxy::ProxyRule;
-use gecko_hub_client::select::{Choice, choose};
-use gecko_hub_client::{CallError, Closed, Transport};
+use gecko_hub_protocol::address::{Choice, choose};
+use gecko_hub_protocol::hub::HubStatus;
+use gecko_hub_protocol::{CallError, Closed};
+use gecko_kernel::{BIND_AGAIN, Failure};
 use serde::de::DeserializeOwned;
 use serde_json::value::RawValue;
 use url::Url;
 
-use crate::auth::{Auth, BIND_AGAIN};
+use crate::auth::Auth;
 use crate::config::{Config, StoredToken};
-use crate::output::Failure;
 
 /// An open connection and what the hub said about it.
 #[derive(Debug)]
@@ -169,8 +170,8 @@ pub async fn open_with(config: &Config, token: StoredToken) -> Result<Session, F
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::output::exit_code_of;
-    use gecko_hub_client::HubError;
+    use gecko_hub_protocol::HubError;
+    use gecko_kernel::exit_code_of;
 
     #[test]
     fn closed_reasons_have_their_codes() {

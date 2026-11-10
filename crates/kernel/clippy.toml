@@ -1,0 +1,23 @@
+# A copy of the root clippy.toml (Clippy does not merge configuration files) plus what
+# the kernel may not touch: no clock, environment, standard streams, threads, files,
+# network, processes or random hashing. Clippy takes no wildcards here, so every path
+# is spelled out. A gate file (AGENTS.md "Mimari").
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+
+disallowed-methods = [
+    "std::time::SystemTime::now",
+    "std::time::Instant::now",
+    "std::env::var",
+    "std::env::var_os",
+    "std::io::stdin",
+    "std::io::stdout",
+    "std::io::stderr",
+    "std::thread::spawn",
+]
+disallowed-types = [
+    "std::fs::File",
+    "std::net::TcpStream",
+    "std::process::Command",
+    "std::collections::hash_map::RandomState",
+]

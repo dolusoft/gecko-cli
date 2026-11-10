@@ -31,14 +31,19 @@ export interface HubProcess {
   stop(): Promise<void>
 }
 
-/** `gecko dev-hub --port 0`; resolves with the address it prints. */
+/**
+ * `gecko dev-hub --port 0`; resolves with the address it prints.
+ * `GECKO_TEST_HUB_BIN` names another `gecko` binary to run the hub (the Rust
+ * one), so the same specs check both hubs.
+ */
 export function startHub(
   extraEnv: Record<string, string> = {},
   args: string[] = []
 ): Promise<HubProcess> {
+  const hubBin = process.env.GECKO_TEST_HUB_BIN
   const child = spawn(
-    process.execPath,
-    [bin, 'dev-hub', '--port', '0', ...args],
+    hubBin ?? process.execPath,
+    [...(hubBin ? [] : [bin]), 'dev-hub', '--port', '0', ...args],
     {
       env: {
         ...process.env,

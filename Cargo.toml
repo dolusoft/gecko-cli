@@ -21,6 +21,8 @@ serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
 # Network stack (spec §7.3): rustls with ring and the operating
 # system's verifier; no native-tls, no aws-lc.
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# Codes and secrets of the development hub, from the operating system's source.
+getrandom = "0.4"
 percent-encoding = "2"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }

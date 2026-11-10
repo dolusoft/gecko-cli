@@ -243,6 +243,16 @@ dependencies = [
 [[package]]
 name = "gecko-dev-hub"
 version = "0.3.0-dev.0"
+dependencies = [
+ "futures-util",
+ "getrandom 0.4.3",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+]
 
 [[package]]
 name = "gecko-hub-client"

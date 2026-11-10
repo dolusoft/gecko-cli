@@ -32,6 +32,10 @@ wins. HTTP and WebSocket follow the same rule. Only `http://` proxies are suppor
 | `GECKO_STATUS_WAIT_MS`       | How long `gecko status` tries to reach the tab                                                                          | 2000           |
 | `GECKO_TRANSPORT`            | `dev`: the development transport is chosen even when the address is not localhost                                       | By the address |
 
+The contract harness reads `GECKO_TEST_HUB_BIN`: the path of a `gecko` binary whose
+`dev-hub` the specs start instead of the Node one (the CI `hub` job sets it to the Rust
+build).
+
 ## Development hub hooks
 
 | Variable                | Meaning                                                                            | Default                           |

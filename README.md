@@ -143,18 +143,16 @@ shells pass arguments correctly.
 
 ## Development hub
 
-A single-process hub for development, listening on `127.0.0.1` only. Until it is ported
-to Rust, it runs from the TypeScript build (Node 22.18 or later):
+A single-process hub for development with fake users, listening on `127.0.0.1` only:
 
 ```sh
-pnpm install && pnpm build
-node bin/gecko.js dev-hub --port 4400 [--web http://localhost:5173] [--auto-approve]
+cargo run -- dev-hub --port 4400 [--web http://localhost:5173] [--auto-approve]
 ```
 
 - `--web`: the origin of the sign-in and binding pages (a local Gecko web server).
 - `--auto-approve`: approves the device code for the first test user by itself.
 
-Release builds of the Rust binary leave the development hub out.
+Release builds (`--no-default-features`) leave the development hub out.
 
 ## Development
 

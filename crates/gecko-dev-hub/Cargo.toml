@@ -9,6 +9,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+futures-util.workspace = true
+getrandom.workspace = true
+percent-encoding.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true

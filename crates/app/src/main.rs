@@ -11,15 +11,13 @@ mod args;
 mod auth;
 mod binding;
 mod code;
+mod command;
 mod config;
 mod format;
-mod help;
 mod interrupt;
-mod line;
 mod output;
 mod own;
 mod ports;
-mod run;
 mod session;
 
 use std::ffi::OsString;
@@ -125,11 +123,11 @@ fn tab_line(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let input = line::input_of(argv, line);
+    let input = command::input_of(argv, line);
     // The tab's `help` command is not open to the CLI: a `help …` line asks as
     // `gecko help …` does.
     if let Ok(gecko_wire::request::Input::Line(text)) = &input
-        && let Some(args) = help::line_args(text)
+        && let Some(args) = gecko_command_domain::help::line_args(text)
     {
         return execute(options, out, err, Job::Help { args });
     }
@@ -229,10 +227,10 @@ fn execute_to(
                 _ => binding::status(options, config, ports).await,
             },
             Job::Line { input } => match input {
-                Ok(input) => line::run(options, config, ports, input, io, interrupts).await,
+                Ok(input) => command::line(options, config, ports, input, io, interrupts).await,
                 Err(failure) => Err(failure),
             },
-            Job::Help { args } => help::run(&args, config, ports, io, interrupts).await,
+            Job::Help { args } => command::help(&args, config, ports, io, interrupts).await,
         }
     });
     // A blocking stdin read (the test interrupt hook) must not hold the process open.

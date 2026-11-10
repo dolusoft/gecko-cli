@@ -1,8 +1,8 @@
 //! One request's life after it is sent (§5.2, §5.6; command-console 1.7.0
 //! `fixtures/remote/sequence/`), as a pure state machine: replies, the end of the
 //! connection, the delivery window and Ctrl+C go in, in order; the result comes out.
-//! The driver (`line.rs`) owns the socket and reads the clock: each event comes with
-//! its time (`Run::on`).
+//! The driver (`gecko-command-module`'s `run_line`) owns the connection and reads the
+//! clock: each event comes with its time (`Run::on`).
 //!
 //! The CLI's own observation decides between "not run" (4) and "unknown" (5): before
 //! `received` the command's `danger` counts, after it the tab's `change` flag does.
@@ -349,6 +349,15 @@ impl Run {
             return None;
         }
         serde_json::from_str(&text).ok()
+    }
+}
+
+/// The outcome of a step that should end the run; any other step is a run that ended
+/// without a result.
+pub fn end_of(step: Step) -> Outcome {
+    match step {
+        Step::End(outcome) => *outcome,
+        _ => Outcome::error("failed", "the request ended without a result", 1),
     }
 }
 

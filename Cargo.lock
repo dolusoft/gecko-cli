@@ -228,6 +228,9 @@ name = "gecko"
 version = "0.3.0"
 dependencies = [
  "futures-util",
+ "gecko-command-contract",
+ "gecko-command-domain",
+ "gecko-command-module",
  "gecko-dev-hub",
  "gecko-hub-client",
  "gecko-hub-protocol",
@@ -241,6 +244,37 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "url",
+]
+
+[[package]]
+name = "gecko-command-contract"
+version = "0.3.0"
+dependencies = [
+ "gecko-kernel",
+]
+
+[[package]]
+name = "gecko-command-domain"
+version = "0.3.0"
+dependencies = [
+ "gecko-hub-protocol",
+ "gecko-kernel",
+ "gecko-wire",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "gecko-command-module"
+version = "0.3.0"
+dependencies = [
+ "gecko-command-contract",
+ "gecko-command-domain",
+ "gecko-hub-protocol",
+ "gecko-kernel",
+ "gecko-wire",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

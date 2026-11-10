@@ -8,7 +8,7 @@ use gecko_hub_protocol::address::{Choice, choose};
 use gecko_hub_protocol::failure::{call_failure, open_failure};
 use gecko_hub_protocol::hub::HubStatus;
 use gecko_hub_protocol::{Closed, HubConnection};
-use gecko_kernel::{Clock, Failure, IdSource};
+use gecko_kernel::{Clock, Failure, IdSource, no_binding};
 use serde::de::DeserializeOwned;
 use serde_json::value::RawValue;
 use url::Url;
@@ -22,14 +22,6 @@ use crate::ports::Ports;
 pub struct Session<H> {
     pub hub: H,
     pub status: HubStatus,
-}
-
-/// What a command says without a binding: there is no token to use.
-pub fn no_binding() -> Failure {
-    Failure::new(
-        "no-binding",
-        "no bound tab; to bind: gecko attach <code> (copy the line from the Gecko tab)",
-    )
 }
 
 fn read<T: DeserializeOwned>(raw: &RawValue, what: &str) -> Result<T, Failure> {
@@ -109,14 +101,6 @@ pub async fn open_with(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gecko_kernel::exit_code_of;
-
-    #[test]
-    fn no_binding_has_its_code() {
-        assert_eq!(exit_code_of(&no_binding().code), 4);
-        assert_eq!(no_binding().code, "no-binding");
-        assert!(no_binding().message.contains("gecko attach <code>"));
-    }
 
     #[test]
     fn hosts_of_origins() {

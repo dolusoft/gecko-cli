@@ -45,6 +45,18 @@ pub struct Ports<C, D> {
     pub proxy: ProxyRule,
 }
 
+impl<C, D> Ports<C, D> {
+    /// What the command context takes of them.
+    pub fn command(&self) -> gecko_command_contract::Ports<'_, C, D> {
+        gecko_command_contract::Ports {
+            settings: &self.settings,
+            clock: &self.clock,
+            ids: &self.ids,
+            cli_version: self.cli_version,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

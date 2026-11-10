@@ -47,6 +47,9 @@ const SOURCE_ROOTS: &[&str] = &[
     "crates/app/src",
     "crates/kernel/src",
     "crates/protocol/hub/src",
+    "crates/contexts/command/contract/src",
+    "crates/contexts/command/domain/src",
+    "crates/contexts/command/module/src",
 ];
 
 #[test]

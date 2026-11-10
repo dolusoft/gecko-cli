@@ -10,6 +10,6 @@ mod outcome;
 mod ports;
 
 pub use failure::{Failure, exit_code_of};
-pub use messages::{BIND_AGAIN, gone_message};
+pub use messages::{BIND_AGAIN, gone_message, no_binding};
 pub use outcome::{Outcome, ViewInfo};
 pub use ports::{Clock, IdSource, Interrupts, Reporter, Settings};

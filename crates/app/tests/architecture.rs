@@ -46,6 +46,9 @@ const ROLES: &[(&str, Role)] = &[
     ("gecko-wire", Role::Protocol),
     ("gecko-hub-protocol", Role::Protocol),
     ("gecko-hub-client", Role::AdapterLib),
+    ("gecko-command-contract", Role::Contract("command")),
+    ("gecko-command-domain", Role::Domain("command")),
+    ("gecko-command-module", Role::Module("command")),
     ("gecko-dev-hub", Role::DevTool),
     ("gecko-testkit", Role::TestSupport),
 ];
@@ -102,8 +105,8 @@ const MODULE_IO: &[&str] = &[
 
 /// Files that still pull source in by path, relative to the workspace root. The list
 /// only shrinks: a file that no longer does is a finding until it leaves the list.
-/// `sequence.rs` builds the run's modules from `src/`; it moves in B3.
-const BY_PATH_PENDING: &[&str] = &["crates/app/tests/sequence.rs"];
+/// Empty since B3, where `sequence.rs` became the command domain's own test.
+const BY_PATH_PENDING: &[&str] = &[];
 
 /// Crates the release binary must not contain, besides every test-support crate.
 const NOT_IN_RELEASE: &[&str] = &["gecko-dev-hub", "sha2"];

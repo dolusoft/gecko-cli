@@ -231,7 +231,6 @@ dependencies = [
  "gecko-binding-contract",
  "gecko-binding-module",
  "gecko-command-contract",
- "gecko-command-domain",
  "gecko-command-module",
  "gecko-dev-hub",
  "gecko-hub-client",
@@ -369,7 +368,9 @@ name = "gecko-testkit"
 version = "0.4.0"
 dependencies = [
  "futures-util",
+ "gecko-command-domain",
  "gecko-dev-hub",
+ "gecko-kernel",
  "gecko-wire",
  "serde_json",
  "tokio",

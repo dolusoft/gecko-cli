@@ -21,6 +21,36 @@ pub fn fixture(version: &str, file: &str) -> Value {
     serde_json::from_str(&text).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
 }
 
+/// Every file of `remote/sequence/` in `version`, as `(file name, examples)`, sorted by
+/// name.
+pub fn sequences(version: &str) -> Vec<(String, Value)> {
+    let dir = PathBuf::from(env!(
+        "GECKO_CLI_FIXTURES_DIR",
+        "set in .cargo/config.toml; run cargo inside the repository"
+    ))
+    .join(format!("command-console-{version}"))
+    .join("remote")
+    .join("sequence");
+    let mut files: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|error| panic!("{}: {error}", dir.display()))
+        .map(|entry| {
+            entry
+                .unwrap_or_else(|error| panic!("{}: {error}", dir.display()))
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    files.sort();
+    files
+        .into_iter()
+        .map(|file| {
+            let examples = fixture(version, &format!("sequence/{file}"));
+            (file, examples)
+        })
+        .collect()
+}
+
 /// The capability list the fake tab publishes, as `publishCapabilities` takes it
 /// (`{ revision, parts }`): the 1.8.2 example `capabilities-effect` of
 /// `valid/capabilities.json`. Its commands are `search` (read, alias `s`), `nav.go`

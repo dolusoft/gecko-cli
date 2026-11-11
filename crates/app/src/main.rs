@@ -124,7 +124,7 @@ fn tab_line(
     // The tab's `help` command is not open to the CLI: a `help …` line asks as
     // `gecko help …` does.
     if let Ok(gecko_wire::Input::Line(text)) = &input
-        && let Some(args) = gecko_command_domain::help::line_args(text)
+        && let Some(args) = gecko_command_module::line_args(text)
     {
         return execute(options, out, err, Job::Help { args });
     }

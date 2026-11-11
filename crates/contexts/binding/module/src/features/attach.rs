@@ -9,7 +9,7 @@ use gecko_binding_contract::{AttachRequest, HubOpener, Ports, TokenStore, TrustP
 use gecko_binding_domain::attach::{
     agreed, attached, declined, may_ask, trust_question, untrusted,
 };
-use gecko_hub_client::proxy::ProxyRule;
+use gecko_hub_client::ProxyRule;
 use gecko_hub_protocol::HubConnection;
 use gecko_kernel::{Clock, Failure, Interrupts, Outcome, Reporter};
 

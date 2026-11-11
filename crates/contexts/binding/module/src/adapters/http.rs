@@ -7,8 +7,8 @@ use gecko_binding_contract::{StoredToken, TokenStore, User};
 use gecko_binding_domain::token::{
     attach_refused, binding_ended, expires_at, needs_refresh, refresh_refused,
 };
-use gecko_hub_client::net;
-use gecko_hub_client::proxy::ProxyRule;
+use gecko_hub_client::ProxyRule;
+use gecko_hub_client::http_client;
 use gecko_kernel::{Clock, Failure};
 use serde_json::{Map, Value};
 use url::Url;
@@ -51,7 +51,7 @@ impl Auth {
         let url = self.endpoint(path);
         let unreachable =
             |detail: String| Failure::new("unreachable", format!("cannot reach {url}: {detail}"));
-        let client = net::http_client(&url, &self.proxy).map_err(unreachable)?;
+        let client = http_client(&url, &self.proxy).map_err(unreachable)?;
         let response = client
             .post(url.clone())
             .header("content-type", content_type)

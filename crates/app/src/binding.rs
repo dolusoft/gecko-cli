@@ -6,7 +6,7 @@
 use std::io::IsTerminal;
 
 use gecko_binding_contract::{AttachRequest, HubOpener, StoredToken, TokenStore, TrustPrompt};
-use gecko_hub_client::dev::DevTransport;
+use gecko_hub_client::DevTransport;
 use gecko_hub_protocol::Session;
 use gecko_kernel::{Clock, Failure, IdSource, Interrupts, Outcome, Reporter};
 

@@ -10,12 +10,23 @@
 //! in `gecko-hub-protocol`; the types a transport hands back are re-exported here. The
 //! development transport implements the port; the SignalR connection does not yet (the
 //! CLI does not open it).
+//!
+//! The modules are private; every name is exported from the crate root. The SignalR
+//! names carry a `Signalr` prefix where a bare name would be ambiguous.
 
-pub mod dev;
-pub mod net;
-pub mod proxy;
-pub mod signalr;
-pub mod tcp;
+mod dev;
+mod net;
+mod proxy;
+mod signalr;
+mod tcp;
+
+pub use dev::{DevOptions, DevTransport};
+pub use net::http_client;
+pub use proxy::ProxyRule;
+pub use signalr::{
+    Connection as SignalrConnection, Event as SignalrEvent, InvokeError, Options as SignalrOptions,
+    hub_result,
+};
 
 pub use gecko_hub_protocol::HubConnection as Transport;
 pub use gecko_hub_protocol::{CallError, Closed, HubError, HubEvent};

@@ -17,7 +17,7 @@
   and the device sign-in and binding pages of the development hub (`--auto-approve`,
   `--interval`). The development hub gains `--public-url`.
 - `--dry-run` and `--yes` go to the tab as typed; a preview no longer prints a line to
-  confirm with. The CLI reads command-console 1.8.0 (`effect`, `approval`).
+  confirm with. The CLI reads command-console 1.8.2 (`effect`, `approval`).
 - Exit code 6 now means an invalid or expired attach code or a refused token; an ended
   binding is 4.
 - A line over the size limits (`too-large`) exits 2, a usage error, as the contract
@@ -41,8 +41,8 @@ this release works with the local development hub only.
 - The CLI is rewritten in Rust (`crates/`). It signs in, binds a tab, shows
   `gecko status`, sends lines to the tab, prints the tab's help and formats results as
   tables. It speaks command-console 1.7.
-- `gecko dev-hub` runs from the Rust binary: the same hub as the Node one, checked by
-  the same contract specs. Release builds leave it out.
+- `gecko dev-hub` runs from the Rust binary and takes the place of the Node
+  development hub, which is gone since. Release builds leave it out.
 - A narrow SignalR client for the hosted hub, tested against a small ASP.NET Core hub
   (`tests/signalr-hub/`). The hosted hub itself is not available yet.
 - `--out <file>` writes the result to a file as UTF-8.

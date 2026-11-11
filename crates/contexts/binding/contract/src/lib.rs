@@ -1,6 +1,6 @@
 //! The binding context's contract (spec §4.1): the binding's stored token, the ports the
 //! context asks of the world (the token store, the answer to the trust question, the
-//! opening of a hub connection) and what a caller hands the `attach`, `detach` and
+//! opening of a hub connection, the exchange of an attach code for a token) and what a caller hands the `attach`, `detach` and
 //! `status` slices. The binary implements the trust prompt and the opener; the token
 //! store is the module's file adapter. No I/O.
 
@@ -65,6 +65,18 @@ pub trait HubOpener {
         &self,
         token: StoredToken,
     ) -> impl Future<Output = Result<Session<Self::Hub>, Failure>>;
+}
+
+/// Spends an attach code's secret at its hub (attach spec §10.2): the hub binds the tab
+/// that made the code and answers with the binding's token.
+pub trait CodeExchange {
+    /// `hub` is the code's checked origin; `clock` dates the token's expiry.
+    fn exchange(
+        &self,
+        hub: &str,
+        secret: &str,
+        clock: &impl Clock,
+    ) -> impl Future<Output = Result<StoredToken, Failure>>;
 }
 
 /// The ports one binding call runs with.

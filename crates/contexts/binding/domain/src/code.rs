@@ -12,12 +12,23 @@ const PREFIX: &str = "gk1_";
 /// The one message of a code that cannot be used: unreadable, used or expired.
 pub const INVALID_MESSAGE: &str = "the code is invalid or expired; copy a new one from the tab";
 
-/// An opened attach code.
+/// An opened attach code: its hub address checked and turned into an origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachCode {
+    hub: String,
+    secret: String,
+}
+
+impl AttachCode {
     /// The hub's origin (`https://hub.example`, `http://127.0.0.1:4400`).
-    pub hub: String,
-    pub secret: String,
+    pub fn hub(&self) -> &str {
+        &self.hub
+    }
+
+    /// The secret the hub takes back in exchange for the binding's token.
+    pub fn secret(&self) -> &str {
+        &self.secret
+    }
 }
 
 pub fn invalid() -> Failure {
@@ -57,10 +68,13 @@ fn unbase64url(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Decodes a code: its hub address as written (not yet checked) and its secret.
-/// Anything that is not a version-1 code is `invalid-code`, with the same message as a
-/// used or expired one.
-pub fn decode(text: &str) -> Result<AttachCode, Failure> {
+/// Opens a code: decoded, with its hub address as a checked origin. `parse` reads an
+/// address as a URL (the module's; the domain takes no URL crate). Anything that is not
+/// a version-1 code is `invalid-code`, with the same message as a used or expired one.
+pub fn open(
+    text: &str,
+    parse: impl FnOnce(&str) -> Option<Address>,
+) -> Result<AttachCode, Failure> {
     let body = text.trim().strip_prefix(PREFIX).ok_or_else(invalid)?;
     let bytes = unbase64url(body).ok_or_else(invalid)?;
     let body: Body = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
@@ -68,23 +82,73 @@ pub fn decode(text: &str) -> Result<AttachCode, Failure> {
         return Err(invalid());
     }
     Ok(AttachCode {
-        hub: body.hub,
+        hub: hub_origin(&body.hub, parse(&body.hub))?,
         secret: body.s,
     })
 }
 
-/// The parts of a parsed hub address the rule looks at.
+/// The parts of a parsed hub address the rule looks at. The scheme, the host and the
+/// origin come with [`Address::new`]; the parts a hub address must not have are added
+/// with the `with_` methods.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Address {
-    pub scheme: String,
-    pub host: Option<String>,
-    pub username: String,
-    pub password: Option<String>,
-    pub path: String,
-    pub query: Option<String>,
-    pub fragment: Option<String>,
-    /// The address's origin, serialized (`https://hub.example`).
-    pub origin: String,
+    scheme: String,
+    host: Option<String>,
+    username: String,
+    password: Option<String>,
+    path: String,
+    query: Option<String>,
+    fragment: Option<String>,
+    origin: String,
+}
+
+impl Address {
+    /// `origin` is the address's origin, serialized (`https://hub.example`).
+    pub fn new(
+        scheme: impl Into<String>,
+        host: Option<String>,
+        origin: impl Into<String>,
+    ) -> Address {
+        Address {
+            scheme: scheme.into(),
+            host,
+            username: String::new(),
+            password: None,
+            path: String::new(),
+            query: None,
+            fragment: None,
+            origin: origin.into(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_credentials(
+        mut self,
+        username: impl Into<String>,
+        password: Option<String>,
+    ) -> Address {
+        self.username = username.into();
+        self.password = password;
+        self
+    }
+
+    #[must_use]
+    pub fn with_path(mut self, path: impl Into<String>) -> Address {
+        self.path = path.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_query(mut self, query: Option<String>) -> Address {
+        self.query = query;
+        self
+    }
+
+    #[must_use]
+    pub fn with_fragment(mut self, fragment: Option<String>) -> Address {
+        self.fragment = fragment;
+        self
+    }
 }
 
 /// The hub address as an origin: `https://` for any host, `http://` for loopback only

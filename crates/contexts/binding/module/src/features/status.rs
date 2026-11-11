@@ -17,12 +17,7 @@ pub async fn status(
     ports: &Ports<'_, impl Clock, impl TokenStore, impl HubOpener>,
 ) -> Result<Outcome, Failure> {
     let Some(token) = ports.store.read_token() else {
-        let data = StatusData {
-            user: None,
-            hub: None,
-            binding: None,
-        };
-        return Ok(status_outcome(&data, json, ports.now_ms()));
+        return Ok(status_outcome(&StatusData::unbound(), json, ports.now_ms()));
     };
     let user = User {
         id: token.user.id.clone(),
@@ -33,38 +28,26 @@ pub async fn status(
     let data = match ports.opener.open_with(token).await {
         Ok(session) => {
             let latency = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-            let data = StatusData {
-                user: Some(session.status.user.clone()),
-                hub: Some(HubReach {
-                    url,
-                    reachable: true,
-                    latency_ms: Some(latency),
-                }),
-                binding: session.status.binding.as_ref().map(BindingData::of),
-            };
+            let data = StatusData::bound(
+                session.status.user.clone(),
+                HubReach::reachable(url, Some(latency)),
+                session.status.binding.as_ref().map(BindingData::of),
+            );
             session.hub.close().await;
             data
         }
         // The 4409 close is the hub's own answer: it is up.
-        Err(failure) if failure.code == "busy" => StatusData {
-            user: Some(user),
-            hub: Some(HubReach {
-                url,
-                reachable: true,
-                latency_ms: None,
-            }),
-            binding: Some(BindingData::only("unknown", Some(level), Some("busy"))),
-        },
+        Err(failure) if failure.code == "busy" => StatusData::bound(
+            user,
+            HubReach::reachable(url, None),
+            Some(BindingData::only("unknown", Some(level), Some("busy"))),
+        ),
         // The refresh was refused: the binding ended, and its token is gone.
-        Err(failure) if failure.code == "gone" => StatusData {
-            user: Some(user),
-            hub: Some(HubReach {
-                url,
-                reachable: true,
-                latency_ms: None,
-            }),
-            binding: Some(BindingData::only("gone", None, None)),
-        },
+        Err(failure) if failure.code == "gone" => StatusData::bound(
+            user,
+            HubReach::reachable(url, None),
+            Some(BindingData::only("gone", None, None)),
+        ),
         Err(failure) => return Err(failure),
     };
     Ok(status_outcome(&data, json, ports.now_ms()))

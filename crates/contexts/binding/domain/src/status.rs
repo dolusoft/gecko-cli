@@ -24,41 +24,73 @@ fn place(location: Option<&Where>) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusData {
-    pub user: Option<User>,
-    pub hub: Option<HubReach>,
-    pub binding: Option<BindingData>,
+    user: Option<User>,
+    hub: Option<HubReach>,
+    binding: Option<BindingData>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HubReach {
-    pub url: String,
-    pub reachable: bool,
+    url: String,
+    reachable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub latency_ms: Option<u64>,
+    latency_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BindingData {
     /// `active`, `suspended`, `gone` or `unknown`.
-    pub state: &'static str,
+    state: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
+    reason: Option<String>,
     /// `ask-server` or `never-ask` (attach spec §5.2).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub level: Option<String>,
+    level: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub approved_at: Option<u64>,
+    approved_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub page_id: Option<String>,
+    page_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
+    title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
+    path: Option<String>,
     /// `ok` (the tab published where it is) or `busy` (another gecko call holds the hub).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tab: Option<&'static str>,
+    tab: Option<&'static str>,
+}
+
+impl StatusData {
+    /// No binding: no user, no hub, the line that says how to bind.
+    pub fn unbound() -> StatusData {
+        StatusData {
+            user: None,
+            hub: None,
+            binding: None,
+        }
+    }
+
+    /// A binding's status: who it acts for, its hub and, when known, the binding.
+    pub fn bound(user: User, hub: HubReach, binding: Option<BindingData>) -> StatusData {
+        StatusData {
+            user: Some(user),
+            hub: Some(hub),
+            binding,
+        }
+    }
+}
+
+impl HubReach {
+    /// The hub answered; `latency_ms` is how long a connection took, when one was
+    /// made.
+    pub fn reachable(url: impl Into<String>, latency_ms: Option<u64>) -> HubReach {
+        HubReach {
+            url: url.into(),
+            reachable: true,
+            latency_ms,
+        }
+    }
 }
 
 fn state_name(state: BindingState) -> &'static str {

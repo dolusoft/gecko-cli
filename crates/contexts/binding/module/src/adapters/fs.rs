@@ -228,7 +228,9 @@ mod tests {
     use gecko_binding_contract::User;
 
     fn temp_config(name: &str) -> Config {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        // cargo runs a crate's tests in the crate's directory.
+        let dir = std::env::current_dir()
+            .expect("temp_config")
             .join("../../../../target/test-tmp/config")
             .join(format!("{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);

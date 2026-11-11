@@ -2,7 +2,6 @@
 //! with a fake Gecko tab on the hub's WebSocket. The tab makes an attach code, the CLI
 //! spends it, and lines travel to the tab and back (attach spec §3, §4, §5).
 #![cfg(feature = "dev-hub")]
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -23,7 +22,7 @@ fn runtime() -> Runtime {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .unwrap()
+        .expect("runtime")
 }
 
 async fn hub(change: impl FnOnce(&mut Options)) -> Running {
@@ -34,7 +33,7 @@ async fn hub(change: impl FnOnce(&mut Options)) -> Running {
     };
     options.timings.heartbeat_ms = 600_000.0;
     change(&mut options);
-    start(options).await.unwrap()
+    start(options).await.expect("hub")
 }
 
 /// An empty config directory.
@@ -43,7 +42,7 @@ fn config(name: &str) -> PathBuf {
         .join("attach")
         .join(name);
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir_all(&dir).expect("config");
     dir
 }
 
@@ -81,25 +80,25 @@ fn spawn_cli(
         command.stdin(Stdio::piped());
     }
     tokio::task::spawn_blocking(move || {
-        let mut child = command.spawn().unwrap();
+        let mut child = command.spawn().expect("spawn_cli");
         if let Some(input) = input {
             child
                 .stdin
                 .take()
-                .unwrap()
+                .expect("spawn_cli")
                 .write_all(input.as_bytes())
-                .unwrap();
+                .expect("spawn_cli");
         }
-        child.wait_with_output().unwrap()
+        child.wait_with_output().expect("spawn_cli")
     })
 }
 
 async fn cli(dir: &Path, args: &[&str]) -> Output {
-    spawn_cli(dir, args, &[], None).await.unwrap()
+    spawn_cli(dir, args, &[], None).await.expect("cli")
 }
 
 fn text(bytes: &[u8]) -> String {
-    String::from_utf8(bytes.to_vec()).unwrap()
+    String::from_utf8(bytes.to_vec()).expect("text")
 }
 
 fn base64url(bytes: &[u8]) -> String {
@@ -125,17 +124,19 @@ fn code_for(hub: &str, secret: &str) -> String {
 
 /// One HTTP request with a JSON body; the status and the JSON answer.
 async fn http(hub: &Running, path: &str, body: Value) -> (u16, Value) {
-    let mut stream = TcpStream::connect(("127.0.0.1", hub.port)).await.unwrap();
+    let mut stream = TcpStream::connect(("127.0.0.1", hub.port))
+        .await
+        .expect("http");
     let body = body.to_string();
     let request = format!(
         "POST {path} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     );
-    stream.write_all(request.as_bytes()).await.unwrap();
+    stream.write_all(request.as_bytes()).await.expect("http");
     let mut answer = String::new();
-    stream.read_to_string(&mut answer).await.unwrap();
-    let (head, body) = answer.split_once("\r\n\r\n").unwrap();
-    let status = head.split(' ').nth(1).unwrap().parse().unwrap();
+    stream.read_to_string(&mut answer).await.expect("http");
+    let (head, body) = answer.split_once("\r\n\r\n").expect("http");
+    let status = head.split(' ').nth(1).expect("http").parse().expect("http");
     (status, serde_json::from_str(body).unwrap_or(Value::Null))
 }
 
@@ -164,9 +165,11 @@ impl Tab {
     async fn open(hub: &Running, page: &str, resume: Option<&str>) -> Tab {
         let request = format!("ws://{}/hub?access_token=dev:u1", hub.env)
             .into_client_request()
-            .unwrap();
-        let stream = TcpStream::connect(("127.0.0.1", hub.port)).await.unwrap();
-        let (socket, _) = client_async(request, stream).await.unwrap();
+            .expect("open");
+        let stream = TcpStream::connect(("127.0.0.1", hub.port))
+            .await
+            .expect("open");
+        let (socket, _) = client_async(request, stream).await.expect("open");
         let mut tab = Tab {
             socket,
             next: 0,
@@ -213,7 +216,7 @@ impl Tab {
                 .expect("a frame within 20 s");
             match message {
                 Some(Ok(Message::Text(text))) => {
-                    return serde_json::from_str(text.as_str()).unwrap();
+                    return serde_json::from_str(text.as_str()).expect("frame");
                 }
                 Some(Ok(_)) => {}
                 other => panic!("{other:?}"),
@@ -228,7 +231,7 @@ impl Tab {
         self.socket
             .send(Message::text(frame.to_string()))
             .await
-            .unwrap();
+            .expect("call");
         loop {
             let frame = self.frame().await;
             if frame["t"] == "result" && frame["id"] == id {
@@ -266,7 +269,7 @@ impl Tab {
         let made = self
             .call("attachCode", json!({ "pageId": page, "level": level }))
             .await;
-        made["code"].as_str().unwrap().to_owned()
+        made["code"].as_str().expect("code").to_owned()
     }
 
     /// Answers the next CLI line with `received` and an ok `finished`; returns its argv.
@@ -291,7 +294,8 @@ impl Tab {
 }
 
 fn token_of(dir: &Path) -> Value {
-    serde_json::from_str(&std::fs::read_to_string(dir.join("token.json")).unwrap()).unwrap()
+    serde_json::from_str(&std::fs::read_to_string(dir.join("token.json")).expect("token_of"))
+        .expect("token_of")
 }
 
 #[test]

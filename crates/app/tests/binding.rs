@@ -1,9 +1,6 @@
 //! `gecko detach` and `status` as processes, against a scripted development hub. The
 //! same listener answers the token refresh (`POST /oauth/token`), as the hub serves
 //! both. `gecko attach` runs against the real development hub in `tests/attach.rs`.
-// Test helpers outside #[test] functions; the upgrade callback's error type is
-// tungstenite's own, large by design.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::result_large_err)]
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -24,10 +21,10 @@ fn now_ms() -> u64 {
     u64::try_from(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("now_ms")
             .as_millis(),
     )
-    .unwrap()
+    .expect("now_ms")
 }
 
 /// How the scripted hub behaves.
@@ -72,20 +69,20 @@ fn active_binding() -> Value {
 
 /// Starts the hub on its own thread; returns `host:port` and the log.
 fn hub(plan: Plan) -> (String, Arc<Mutex<Seen>>) {
-    let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    std_listener.set_nonblocking(true).unwrap();
-    let host = std_listener.local_addr().unwrap().to_string();
+    let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("hub");
+    std_listener.set_nonblocking(true).expect("hub");
+    let host = std_listener.local_addr().expect("hub").to_string();
     let seen = Arc::new(Mutex::new(Seen::default()));
     let log = seen.clone();
     std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .unwrap();
+            .expect("hub");
         runtime.block_on(async move {
-            let listener = TcpListener::from_std(std_listener).unwrap();
+            let listener = TcpListener::from_std(std_listener).expect("hub");
             loop {
-                let (tcp, _) = listener.accept().await.unwrap();
+                let (tcp, _) = listener.accept().await.expect("hub");
                 tokio::spawn(serve(tcp, plan.clone(), log.clone()));
             }
         });
@@ -93,6 +90,8 @@ fn hub(plan: Plan) -> (String, Arc<Mutex<Seen>>) {
     (host, seen)
 }
 
+// The upgrade callback's error type is tungstenite's own `ErrorResponse`, large by design.
+#[allow(clippy::result_large_err)]
 async fn serve(tcp: TcpStream, plan: Plan, log: Arc<Mutex<Seen>>) {
     let mut head = [0u8; 4];
     if tcp.peek(&mut head).await.is_err() {
@@ -111,12 +110,12 @@ async fn serve(tcp: TcpStream, plan: Plan, log: Arc<Mutex<Seen>>) {
             .map(|value| {
                 value
                     .to_str()
-                    .unwrap()
+                    .expect("serve")
                     .trim_start_matches("Bearer ")
                     .to_owned()
             })
             .unwrap_or_default();
-        record.lock().unwrap().tokens.push(token.clone());
+        record.lock().expect("serve").tokens.push(token.clone());
         if refused.iter().any(|r| *r == token) {
             let mut error = ErrorResponse::new(Some("unauthorized".to_owned()));
             *error.status_mut() = StatusCode::UNAUTHORIZED;
@@ -140,9 +139,9 @@ async fn serve(tcp: TcpStream, plan: Plan, log: Arc<Mutex<Seen>>) {
         let Message::Text(text) = message else {
             continue;
         };
-        let frame: Value = serde_json::from_str(text.as_str()).unwrap();
-        let method = frame["method"].as_str().unwrap().to_owned();
-        log.lock().unwrap().methods.push(method.clone());
+        let frame: Value = serde_json::from_str(text.as_str()).expect("serve");
+        let method = frame["method"].as_str().expect("serve").to_owned();
+        log.lock().expect("serve").methods.push(method.clone());
         let id = frame["id"].clone();
         let value = match method.as_str() {
             "status" => json!({
@@ -162,7 +161,10 @@ async fn serve(tcp: TcpStream, plan: Plan, log: Arc<Mutex<Seen>>) {
 type Socket = tokio_tungstenite::WebSocketStream<TcpStream>;
 
 async fn say(socket: &mut Socket, frame: Value) {
-    socket.send(Message::text(frame.to_string())).await.unwrap();
+    socket
+        .send(Message::text(frame.to_string()))
+        .await
+        .expect("say");
 }
 
 async fn close(socket: &mut Socket, code: u16) {
@@ -179,7 +181,7 @@ async fn refresh(mut tcp: TcpStream, log: &Arc<Mutex<Seen>>, status: u16) {
     let mut request = Vec::new();
     let mut buffer = [0u8; 4096];
     loop {
-        let read = tcp.read(&mut buffer).await.unwrap();
+        let read = tcp.read(&mut buffer).await.expect("refresh");
         request.extend_from_slice(&buffer[..read]);
         let text = String::from_utf8_lossy(&request);
         if let Some(end) = text.find("\r\n\r\n") {
@@ -188,7 +190,7 @@ async fn refresh(mut tcp: TcpStream, log: &Arc<Mutex<Seen>>, status: u16) {
                 .find_map(|line| {
                     line.to_ascii_lowercase()
                         .strip_prefix("content-length:")
-                        .map(|v| v.trim().parse::<usize>().unwrap())
+                        .map(|v| v.trim().parse::<usize>().expect("refresh"))
                 })
                 .unwrap_or(0);
             if request.len() >= end + 4 + length || read == 0 {
@@ -199,7 +201,7 @@ async fn refresh(mut tcp: TcpStream, log: &Arc<Mutex<Seen>>, status: u16) {
             break;
         }
     }
-    log.lock().unwrap().refreshes += 1;
+    log.lock().expect("refresh").refreshes += 1;
     let body = if status == 200 {
         json!({
             "access_token": "at-2", "token_type": "Bearer", "expires_in": 900,
@@ -213,7 +215,7 @@ async fn refresh(mut tcp: TcpStream, log: &Arc<Mutex<Seen>>, status: u16) {
         "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
         body.len()
     );
-    tcp.write_all(answer.as_bytes()).await.unwrap();
+    tcp.write_all(answer.as_bytes()).await.expect("refresh");
 }
 
 /// A config directory bound through the hub at `host`, with access token `at-1`.
@@ -222,13 +224,13 @@ fn signed_in(name: &str, host: &str) -> PathBuf {
         .join("binding")
         .join(name);
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir_all(&dir).expect("signed_in");
     let token = json!({
         "hub": format!("http://{host}"), "accessToken": "at-1",
         "accessExpiresAt": now_ms() + 3_600_000, "refreshToken": "rt-1", "grantId": "g_1",
         "bindingId": "b1", "level": "ask-server", "user": { "id": "u1", "name": "Zahit" }
     });
-    std::fs::write(dir.join("token.json"), token.to_string()).unwrap();
+    std::fs::write(dir.join("token.json"), token.to_string()).expect("signed_in");
     dir
 }
 
@@ -248,15 +250,15 @@ fn gecko(dir: &Path, args: &[&str]) -> Command {
 }
 
 fn run(dir: &Path, args: &[&str]) -> Output {
-    gecko(dir, args).output().unwrap()
+    gecko(dir, args).output().expect("run")
 }
 
 fn text(bytes: &[u8]) -> String {
-    String::from_utf8(bytes.to_vec()).unwrap()
+    String::from_utf8(bytes.to_vec()).expect("text")
 }
 
 fn seen(log: &Arc<Mutex<Seen>>) -> Seen {
-    log.lock().unwrap().clone()
+    log.lock().expect("seen").clone()
 }
 
 #[test]

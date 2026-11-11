@@ -2,7 +2,6 @@
 //! `exit_code_of`, and a scan of the CLI's sources for codes the table misses. The
 //! sources scanned are listed once, in [`SOURCE_ROOTS`]; a crate that writes failures
 //! (a context's `domain` or `module`) joins that list.
-#![allow(clippy::unwrap_used)]
 
 use std::path::{Path, PathBuf};
 
@@ -81,8 +80,8 @@ fn codes_written(text: &str) -> Vec<String> {
 
 /// Every `.rs` file under `dir`, its subfolders included.
 fn rust_files(dir: &Path, found: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
+    for entry in std::fs::read_dir(dir).expect("rust_files") {
+        let path = entry.expect("rust_files").path();
         if path.is_dir() {
             rust_files(&path, found);
         } else if path.extension().is_some_and(|ext| ext == "rs") {

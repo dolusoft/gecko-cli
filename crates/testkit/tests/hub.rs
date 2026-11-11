@@ -9,8 +9,6 @@
 //! depends on the hub, so a dev-dependency of the hub on the testkit would close a
 //! cycle in the package graph.
 
-#![allow(clippy::unwrap_used)]
-
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
@@ -62,7 +60,9 @@ async fn request(
     body: Value,
 ) -> Answer {
     let exchange = async {
-        let mut stream = TcpStream::connect(("127.0.0.1", hub.port)).await.unwrap();
+        let mut stream = TcpStream::connect(("127.0.0.1", hub.port))
+            .await
+            .expect("request");
         let body = if body.is_null() {
             String::new()
         } else {
@@ -76,24 +76,24 @@ async fn request(
             "{method} {path} HTTP/1.1\r\nHost: x\r\n{extra}Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
             body.len()
         );
-        stream.write_all(request.as_bytes()).await.unwrap();
+        stream.write_all(request.as_bytes()).await.expect("request");
         let mut answer = String::new();
-        stream.read_to_string(&mut answer).await.unwrap();
+        stream.read_to_string(&mut answer).await.expect("request");
         answer
     };
     let answer = tokio::time::timeout(WAIT, exchange)
         .await
         .unwrap_or_else(|_| panic!("{method} {path}: no answer within {WAIT:?}"));
-    let (head, body) = answer.split_once("\r\n\r\n").unwrap();
+    let (head, body) = answer.split_once("\r\n\r\n").expect("request");
     let mut lines = head.split("\r\n");
     let status = lines
         .next()
-        .unwrap()
+        .expect("request")
         .split(' ')
         .nth(1)
-        .unwrap()
+        .expect("request")
         .parse()
-        .unwrap();
+        .expect("request");
     let headers = lines
         .filter_map(|line| line.split_once(':'))
         .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim().to_owned()))
@@ -129,7 +129,7 @@ fn unbase64url(text: &str) -> Vec<u8> {
     let mut count = 0;
     let mut out = Vec::new();
     for byte in text.bytes() {
-        let value = TABLE.iter().position(|t| *t == byte).unwrap() as u32;
+        let value = TABLE.iter().position(|t| *t == byte).expect("unbase64url") as u32;
         bits = (bits << 6) | value;
         count += 6;
         if count >= 8 {
@@ -144,14 +144,14 @@ fn unbase64url(text: &str) -> Vec<u8> {
 /// The JSON inside a `gk1_` code.
 fn opened(code: &str) -> Value {
     let body = code.strip_prefix("gk1_").expect("the gk1_ prefix");
-    serde_json::from_slice(&unbase64url(body)).unwrap()
+    serde_json::from_slice(&unbase64url(body)).expect("opened")
 }
 
 /// The secret of a code.
 fn secret_of(code: &Value) -> String {
-    opened(code["code"].as_str().unwrap())["s"]
+    opened(code["code"].as_str().expect("secret_of"))["s"]
         .as_str()
-        .unwrap()
+        .expect("secret_of")
         .to_owned()
 }
 
@@ -180,16 +180,19 @@ impl Client {
     async fn connect(hub: &Hub, bearer: Option<&str>, query: &str) -> Result<Client, u16> {
         let mut request = format!("ws://{}/hub{query}", hub.env)
             .into_client_request()
-            .unwrap();
+            .expect("connect");
         if let Some(bearer) = bearer {
-            request
-                .headers_mut()
-                .insert("authorization", format!("Bearer {bearer}").parse().unwrap());
+            request.headers_mut().insert(
+                "authorization",
+                format!("Bearer {bearer}").parse().expect("connect"),
+            );
         }
         let deadline = Instant::now() + WAIT;
         let opening = async {
-            let stream = TcpStream::connect(("127.0.0.1", hub.port)).await.unwrap();
-            client_async(request, stream).await.unwrap().0
+            let stream = TcpStream::connect(("127.0.0.1", hub.port))
+                .await
+                .expect("connect");
+            client_async(request, stream).await.expect("connect").0
         };
         let socket = tokio::time::timeout_at(deadline, opening)
             .await
@@ -213,8 +216,11 @@ impl Client {
     async fn tab(hub: &Hub, page: &str) -> Client {
         let mut tab = Client::connect(hub, None, "?access_token=dev:u1")
             .await
-            .unwrap();
-        let hello = tab.call("hello", json!({ "pageId": page })).await.unwrap();
+            .expect("tab");
+        let hello = tab
+            .call("hello", json!({ "pageId": page }))
+            .await
+            .expect("tab");
         assert_eq!(hello, json!({ "binding": null }));
         tab
     }
@@ -228,7 +234,7 @@ impl Client {
                 .unwrap_or_else(|_| panic!("no frame within {WAIT:?}; events: {:?}", self.events));
             match message {
                 Some(Ok(Message::Text(text))) => {
-                    return Ok(serde_json::from_str(text.as_str()).unwrap());
+                    return Ok(serde_json::from_str(text.as_str()).expect("frame"));
                 }
                 Some(Ok(Message::Close(frame))) => {
                     return Err(frame.map(|f| u16::from(f.code)).unwrap_or(0));
@@ -247,7 +253,7 @@ impl Client {
         self.socket
             .send(Message::text(frame.to_string()))
             .await
-            .unwrap();
+            .expect("invoke");
         id
     }
 
@@ -257,7 +263,7 @@ impl Client {
         }
         let deadline = Instant::now() + WAIT;
         loop {
-            let frame = self.frame(deadline).await.unwrap();
+            let frame = self.frame(deadline).await.expect("result");
             if frame["t"] == "result" {
                 let answer = if frame["ok"] == true {
                     Ok(frame["value"].clone())
@@ -267,7 +273,8 @@ impl Client {
                 if frame["id"] == id {
                     return answer;
                 }
-                self.results.push((frame["id"].as_u64().unwrap(), answer));
+                self.results
+                    .push((frame["id"].as_u64().expect("result"), answer));
                 continue;
             }
             self.events.push((
@@ -289,7 +296,7 @@ impl Client {
         }
         let deadline = Instant::now() + WAIT;
         loop {
-            let frame = self.frame(deadline).await.unwrap();
+            let frame = self.frame(deadline).await.expect("event");
             if frame["t"] == "event" && frame["name"] == name {
                 return frame["payload"].clone();
             }
@@ -315,7 +322,7 @@ impl Client {
 
     async fn close(mut self) {
         let closing = async {
-            self.socket.close(None).await.unwrap();
+            self.socket.close(None).await.expect("close");
             while self.socket.next().await.is_some() {}
         };
         tokio::time::timeout(WAIT, closing)
@@ -334,7 +341,7 @@ async fn bound(hub: &Hub, page: &str, level: &str) -> (Client, Value, Client) {
     let code = tab
         .call("attachCode", json!({ "pageId": page, "level": level }))
         .await
-        .unwrap();
+        .expect("bound");
     let (status, tokens) = attach(hub, &secret_of(&code)).await;
     assert_eq!(status, 200, "{tokens}");
     let event = tab.event("binding").await;
@@ -342,7 +349,7 @@ async fn bound(hub: &Hub, page: &str, level: &str) -> (Client, Value, Client) {
     assert_eq!(event["bindingId"], tokens["bindingId"]);
     let cli = Client::connect(hub, tokens["access_token"].as_str(), "")
         .await
-        .unwrap();
+        .expect("bound");
     (tab, tokens, cli)
 }
 
@@ -425,13 +432,16 @@ async fn a_code_carries_the_hub_and_binds_its_page() {
 }
 
 async fn status_approved(cli: &mut Client) -> Value {
-    cli.call("status", json!({})).await.unwrap()["binding"]["approvedAt"].clone()
+    cli.call("status", json!({}))
+        .await
+        .expect("status_approved")["binding"]["approvedAt"]
+        .clone()
 }
 
 fn now_ms() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("now_ms")
         .as_millis() as f64
 }
 

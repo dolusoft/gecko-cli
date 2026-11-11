@@ -540,8 +540,9 @@ async fn ctrl_c_sends_cancel_and_the_tabs_answer_ends_it() {
 
 #[tokio::test]
 async fn cancelled_before_start_exits_130() {
-    // The answer comes at once; the CLI ends when its cancel wait (3 s) is over.
-    let (hub, mut tab, _cli, mut run, request) = running_read(None).await;
+    // The command did not run, so the CLI ends at the answer: a cancel wait longer
+    // than any test, and no `finished` after it.
+    let (hub, mut tab, _cli, mut run, request) = running_read(Some(600_000)).await;
     run.interrupt();
     saw_cancel(&mut tab, &request).await;
     tab.reply(&cancelled_before_start(&request.id)).await;

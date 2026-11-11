@@ -244,6 +244,11 @@ impl Run {
                 self.cancel_answer = Some(CancelAnswer::Requested);
                 Step::Wait
             }
+            // The command did not run: nothing the tab sends after this changes the
+            // outcome, so the run ends without the cancel wait.
+            Reply::CancelledBeforeStart { .. } if self.interrupted => {
+                self.cancelled(Some(CancelAnswer::BeforeStart))
+            }
             Reply::CancelledBeforeStart { .. } => {
                 self.cancel_answer = Some(CancelAnswer::BeforeStart);
                 Step::Wait

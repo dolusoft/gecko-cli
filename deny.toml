@@ -1,0 +1,38 @@
+# cargo-deny: licences, advisories, sources and duplicate versions.
+# It does not check architecture edges; `crates/app/tests/architecture.rs` does.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    # `ring`, `untrusted` and `rustls-webpki`: the TLS stack.
+    "ISC",
+    # `webpki-root-certs`: the Mozilla root certificates.
+    "CDLA-Permissive-2.0",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+# Workspace crates are not published and carry no licence field.
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

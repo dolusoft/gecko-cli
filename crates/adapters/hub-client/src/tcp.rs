@@ -54,11 +54,10 @@ fn no_syn_retries(socket: &TcpSocket) {
     };
     let mut returned = 0u32;
     let raw = socket.as_raw_socket() as SOCKET;
-    // `raw` is the open socket `socket` owns for the whole call; the input points at a
-    // live, correctly sized `TCP_INITIAL_RTO_PARAMETERS`; there is no output buffer, no
-    // overlapped structure and no completion routine. A failure only leaves the system
-    // default (the slow refusal), so its result is ignored.
-    // SAFETY: socket, input and the absent buffers above stay valid for the whole call.
+    // SAFETY: `raw` is the open socket `socket` owns for the whole call; the input
+    // points at a live, correctly sized `TCP_INITIAL_RTO_PARAMETERS`; there is no
+    // output buffer, no overlapped structure and no completion routine. A failure
+    // only leaves the system default (the slow refusal), so its result is ignored.
     unsafe {
         WSAIoctl(
             raw,

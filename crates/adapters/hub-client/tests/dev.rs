@@ -1,16 +1,14 @@
 //! The development transport against a scripted hub in the same process. The real
-//! development hub has its own tests (`crates/testkit/tests/hub.rs`).
-// Test helpers outside #[test] functions; the upgrade callback's error type is
-// tungstenite's own, large by design.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::result_large_err)]
+//! development hub has its own tests (`crates/testkit/tests/hub.rs`). Helpers outside
+//! `#[test]` functions use `expect`, which clippy's test allowances do not need to cover.
 
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use gecko_hub_client::dev::{DevOptions, DevTransport};
 use gecko_hub_client::{CallError, Closed, HubEvent, Transport};
+use gecko_hub_client::{DevOptions, DevTransport};
 use serde_json::Value;
 use serde_json::value::RawValue;
 use tokio::net::{TcpListener, TcpStream};
@@ -33,25 +31,29 @@ struct Seen {
 
 /// Starts a hub that accepts one connection and runs `script` on it. With `refuse`, the
 /// upgrade is answered with that HTTP status instead.
+// The upgrade callback's error type is tungstenite's own `ErrorResponse`, large by design.
+#[allow(clippy::result_large_err)]
 async fn hub<F, Fut>(refuse: Option<StatusCode>, script: F) -> (String, Arc<Mutex<Seen>>)
 where
     F: FnOnce(Hub) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send,
 {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let host = listener.local_addr().unwrap().to_string();
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a local port");
+    let host = listener.local_addr().expect("local address").to_string();
     let seen = Arc::new(Mutex::new(Seen::default()));
     let record = seen.clone();
     tokio::spawn(async move {
-        let (tcp, _) = listener.accept().await.unwrap();
+        let (tcp, _) = listener.accept().await.expect("accept the CLI");
         let callback = move |request: &Request, response: Response| {
             let header = |name: &str| {
                 request
                     .headers()
                     .get(name)
-                    .map(|value| value.to_str().unwrap().to_owned())
+                    .map(|value| value.to_str().expect("ASCII header").to_owned())
             };
-            *record.lock().unwrap() = Seen {
+            *record.lock().expect("seen lock") = Seen {
                 uri: request.uri().to_string(),
                 authorization: header("authorization"),
                 user_agent: header("user-agent"),
@@ -80,7 +82,9 @@ fn options(host: &str) -> DevOptions {
 }
 
 async fn say(hub: &mut Hub, frame: Value) {
-    hub.send(Message::text(frame.to_string())).await.unwrap();
+    hub.send(Message::text(frame.to_string()))
+        .await
+        .expect("send a frame");
 }
 
 async fn ready(hub: &mut Hub) {
@@ -94,8 +98,15 @@ async fn ready(hub: &mut Hub) {
 /// The next invoke frame from the CLI.
 async fn heard(hub: &mut Hub) -> Value {
     loop {
-        match hub.next().await.unwrap().unwrap() {
-            Message::Text(text) => return serde_json::from_str(text.as_str()).unwrap(),
+        match hub
+            .next()
+            .await
+            .expect("a frame")
+            .expect("a readable frame")
+        {
+            Message::Text(text) => {
+                return serde_json::from_str(text.as_str()).expect("a JSON frame");
+            }
             Message::Close(_) => panic!("closed"),
             _ => {}
         }
@@ -108,11 +119,11 @@ async fn close(hub: &mut Hub, code: u16, reason: &str) {
         reason: reason.to_owned().into(),
     }))
     .await
-    .unwrap();
+    .expect("close the socket");
 }
 
 fn raw(json: &str) -> Box<RawValue> {
-    RawValue::from_string(json.to_owned()).unwrap()
+    RawValue::from_string(json.to_owned()).expect("valid JSON")
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -302,7 +313,9 @@ async fn late_answer_times_out_and_the_connection_stays() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn nothing_listening_is_a_transport_error() {
-    let free = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let free = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a local port");
     let host = free.local_addr().unwrap().to_string();
     drop(free);
     assert!(matches!(

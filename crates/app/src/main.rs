@@ -23,7 +23,7 @@ use std::process::ExitCode;
 
 use args::{Action, ArgError, Options};
 use gecko_binding_module::adapters::fs::Config;
-use gecko_hub_client::proxy::ProxyRule;
+use gecko_hub_client::ProxyRule;
 use gecko_kernel::{Failure, Reporter, Settings};
 use interrupt::CtrlC;
 use output::Io;

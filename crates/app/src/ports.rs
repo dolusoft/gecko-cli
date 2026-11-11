@@ -4,7 +4,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gecko_hub_client::proxy::ProxyRule;
+use gecko_hub_client::ProxyRule;
 use gecko_kernel::{Clock, IdSource, Settings};
 
 /// The operating system's wall clock.

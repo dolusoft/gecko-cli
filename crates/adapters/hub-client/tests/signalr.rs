@@ -4,17 +4,19 @@
 //!   TEST_HUB_KEEPALIVE_MS=500 TEST_HUB_CLIENT_TIMEOUT_MS=2000 SignalRTestHub --urls http://127.0.0.1:5199
 //! and GECKO_SIGNALR_TEST_HUB=http://127.0.0.1:5199. Without the variable the tests are
 //! skipped; the CI job that starts the hub also sets GECKO_SIGNALR_TEST_HUB_REQUIRED=1,
-//! so a missing hub fails there instead of passing silently.
-// Test helpers outside #[test] functions: clippy's test allowances do not reach them.
-#![allow(clippy::print_stderr, clippy::unwrap_used)]
+//! so a missing hub fails there instead of passing silently. Helpers outside `#[test]`
+//! functions use `expect`, which clippy's test allowances do not need to cover.
 
+use std::io::Write as _;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use gecko_hub_client::Closed;
-use gecko_hub_client::proxy::ProxyRule;
-use gecko_hub_client::signalr::{Connection, InvokeError, Options, hub_result};
+use gecko_hub_client::ProxyRule;
+use gecko_hub_client::{
+    InvokeError, SignalrConnection as Connection, SignalrOptions as Options, hub_result,
+};
 use serde_json::value::RawValue;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -26,7 +28,10 @@ fn base() -> Option<String> {
             panic!("GECKO_SIGNALR_TEST_HUB is not set although the hub is required")
         }
         Err(_) => {
-            eprintln!("skipped: GECKO_SIGNALR_TEST_HUB is not set");
+            let _ = writeln!(
+                std::io::stderr(),
+                "skipped: GECKO_SIGNALR_TEST_HUB is not set"
+            );
             None
         }
     }
@@ -42,8 +47,10 @@ fn options(base: &str, token: &str) -> Options {
 
 /// A CONNECT proxy on a random local port; counts the tunnels it opened.
 async fn connect_proxy() -> (String, Arc<AtomicUsize>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a local port");
+    let address = listener.local_addr().expect("local address");
     let tunnels = Arc::new(AtomicUsize::new(0));
     let counter = tunnels.clone();
     tokio::spawn(async move {
@@ -71,7 +78,7 @@ async fn connect_proxy() -> (String, Arc<AtomicUsize>) {
                 client
                     .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
                     .await
-                    .unwrap();
+                    .expect("answer the CONNECT");
                 let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
             });
         }
@@ -93,7 +100,7 @@ fn proxy_rule(pairs: &[(&str, &str)]) -> ProxyRule {
 }
 
 fn raw(json: &str) -> Box<RawValue> {
-    RawValue::from_string(json.to_owned()).unwrap()
+    RawValue::from_string(json.to_owned()).expect("valid JSON")
 }
 
 async fn send(connection: &mut Connection, envelope: &str) -> Result<Box<RawValue>, InvokeError> {

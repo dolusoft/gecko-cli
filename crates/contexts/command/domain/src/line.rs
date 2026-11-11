@@ -148,12 +148,12 @@ pub fn not_listed(help: &HelpResult, name: &str) -> Option<Outcome> {
     Some(outcome)
 }
 
-/// The hub's stamp on a sent envelope.
+/// The hub's stamp on a sent envelope; read from the hub's answer only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Stamp {
-    pub stamped_at: u64,
-    pub expires_at: u64,
+    stamped_at: u64,
+    expires_at: u64,
 }
 
 impl Stamp {

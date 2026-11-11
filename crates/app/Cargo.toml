@@ -22,7 +22,6 @@ dev-hub = ["dep:gecko-dev-hub"]
 gecko-binding-contract.workspace = true
 gecko-binding-module.workspace = true
 gecko-command-contract.workspace = true
-gecko-command-domain.workspace = true
 gecko-command-module.workspace = true
 gecko-dev-hub = { workspace = true, optional = true }
 gecko-hub-client.workspace = true

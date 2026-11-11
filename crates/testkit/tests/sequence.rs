@@ -1,8 +1,8 @@
 //! command-console `fixtures/remote/sequence/` (1.7.2 and 1.8.2) against the CLI's run: each
 //! example feeds replies and events in order and checks the exit code and a subset of
 //! the `--json` result. The run is the command domain's state machine; its clock is a
-//! parameter (`Run::on(event, now)`).
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+//! parameter (`Run::on(event, now)`). The test lives in the testkit, not in the domain:
+//! reading the files is I/O, and the domain has none.
 
 use gecko_command_domain::run::{Event, Run, Step};
 use gecko_wire::{Read, read_value};
@@ -28,7 +28,7 @@ fn feed(example: &Value) -> gecko_kernel::Outcome {
     let expire = example["tab"]["expire"] == true;
     let danger_change = example["danger"] != "read";
     let mut run = Run::new(danger_change);
-    for item in example["replies"].as_array().unwrap() {
+    for item in example["replies"].as_array().expect("feed") {
         if expire && item["kind"] == "finished" {
             // The card is over before the tab's word; the run still waits for that
             // word, it does not end on its own clock.
@@ -71,28 +71,19 @@ fn contains(whole: &Value, subset: &Value) -> bool {
 
 /// Runs every example of one fixture folder; returns how many ran.
 fn sequences_of(version: &str) -> usize {
-    let dir = std::path::PathBuf::from(env!(
-        "GECKO_CLI_FIXTURES_DIR",
-        "set in .cargo/config.toml; run cargo inside the repository"
-    ))
-    .join(format!("command-console-{version}/remote/sequence"));
     let mut count = 0;
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        let examples: Value =
-            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        for example in examples.as_array().unwrap() {
+    for (file, examples) in gecko_testkit::sequences(version) {
+        for example in examples.as_array().expect("sequences_of") {
             let label = format!(
-                "{version} {}/{}",
-                path.file_name().unwrap().to_string_lossy(),
-                example["name"].as_str().unwrap()
+                "{version} {file}/{}",
+                example["name"].as_str().expect("sequences_of")
             );
             let outcome = feed(example);
-            let json = serde_json::to_value(&outcome).unwrap();
+            let json = serde_json::to_value(&outcome).expect("sequences_of");
             let expect = &example["expect"];
             assert_eq!(
                 u64::from(outcome.exit()),
-                expect["exitCode"].as_u64().unwrap(),
+                expect["exitCode"].as_u64().expect("sequences_of"),
                 "{label}: {json}"
             );
             assert!(contains(&json, &expect["json"]), "{label}: {json}");
@@ -103,7 +94,7 @@ fn sequences_of(version: &str) -> usize {
                 .flatten()
             {
                 assert!(
-                    json.get(field.as_str().unwrap()).is_none(),
+                    json.get(field.as_str().expect("sequences_of")).is_none(),
                     "{label}: {json}"
                 );
             }

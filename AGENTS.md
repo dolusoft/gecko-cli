@@ -45,11 +45,15 @@ Kararlar ve gerekçeleri: [docs/adr/0001-architecture.md](docs/adr/0001-architec
 | `dev-tool`     | `gecko-dev-hub`                                    | workspace crate'i yok; ona yalnız ikili (özellik arkasında) ve `test-support` bağlanır           |
 | `test-support` | `gecko-testkit`                                    | herkes; yalnız `dev-dependencies` içinde görünür                                                 |
 | `app`          | `gecko`                                            | herkes (`test-support` yalnız dev)                                                               |
-| `legacy`       | yok (B4'te boşaldı)                                | herkes; liste yalnız kısalır. Rol testte kalır: rust-kit'in `adopt` modu onu kullanacak          |
+| `legacy`       | yok (B4'te boşaldı)                                | herkes; liste yalnız kısalır                                                                     |
 
 Ayrıca: her manifest `[lints] workspace = true` taşır ve kök lint tablosu testtekiyle aynıdır; hiçbir crate kaynağı yol ile içeri almaz (bekleyen istisna yok); `--no-default-features` ile çözülen `gecko` grafiğinde `gecko-dev-hub`, `sha2` ve `gecko-testkit` yoktur.
 
-**Kapı dosyaları:** `crates/app/tests/architecture.rs`, bütün `clippy.toml` dosyaları ve kök `Cargo.toml`'un `[workspace.lints.*]` bölümü. Bunlara dokunan değişiklik ayrı bir PR'dır; gerekçesi PR açıklamasında yazar.
+Bu testin yanında repo sahipleri rust-kit'in denetimini (`cargo xtask arch`) reponun bir kopyası üzerinde, repo dışında koşar. O denetim bu repoya girmez ve bu testin yerini almaz; oradan gelen bulgu burada, herhangi bir inceleme yorumu gibi düzeltilir.
+
+`deny.toml` (`cargo deny`, CI'da `deny` işi) lisans, güvenlik bildirimi ve kaynak denetimidir. Lisans izin listesinde ISC (`ring`, `untrusted`, `rustls-webpki`) ve CDLA-Permissive-2.0 (`webpki-root-certs`) bilinçli olarak var; yeni lisans PR'da gerekçelendirilir.
+
+**Kapı dosyaları:** `crates/app/tests/architecture.rs`, bütün `clippy.toml` dosyaları, kök `Cargo.toml`'un `[workspace.lints.*]` bölümü ve `deny.toml`. Bunlara dokunan değişiklik ayrı bir PR'dır; gerekçesi PR açıklamasında yazar.
 
 ### Tarif: neyi nereye yazarsın
 
@@ -94,5 +98,7 @@ cargo clippy --workspace --all-targets --no-default-features -- -D warnings
 cargo test --workspace
 cargo test --workspace --no-default-features
 ```
+
+`deny.toml` ya da bağımlılık değiştiyse `cargo deny check` da.
 
 Markdown, YAML ya da JSON değiştiyse `pnpm install && pnpm exec prettier --check .` da. İş ortasında yalnız değişen testler; PR öncesi bir kez tam paket.

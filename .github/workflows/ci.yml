@@ -105,8 +105,18 @@ jobs:
       - if: ${{ failure() }}
         run: cat hub.log
 
+  # Licences, advisories, sources and duplicate versions (deny.toml).
+  deny:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
   verify:
-    needs: [checks, rust, signalr]
+    needs: [checks, rust, signalr, deny]
     # A skipped required check counts as passed; this one reports failures.
     if: ${{ always() }}
     runs-on: ubuntu-latest
@@ -116,7 +126,7 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "checks, rust, signalr: $RESULTS"
+          echo "checks, rust, signalr, deny: $RESULTS"
           for result in $RESULTS; do
             if [ "$result" != "success" ]; then
               exit 1

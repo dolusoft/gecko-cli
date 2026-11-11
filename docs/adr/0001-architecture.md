@@ -1,7 +1,7 @@
 # ADR 0001: Architecture
 
-Status: accepted. Reference: rust-kit `rust-ddd-scaffold` (its `cli` profile
-and `adopt` mode do not exist yet; see "Enforcement").
+Status: accepted. Reference: rust-kit `rust-ddd-scaffold` (see
+"Enforcement").
 
 ## Context
 
@@ -96,10 +96,13 @@ The architecture test, every `clippy.toml` and the root lint tables are gate
 files: a change to them is a pull request of its own, with the reason in its
 description.
 
-Next: when rust-kit's `cli` profile and `adopt` mode are ready, `xtask/` is
-set up from the template, its checks replace this test, and the test is
-deleted. The `legacy` role stays in the test until then because `adopt` uses
-it.
+rust-kit's own checks (`cargo xtask arch`) are not part of this repository:
+the maintainers run them on a copy of it, outside. This test stays the
+check every contributor runs; it is not deleted when the outside checks
+grow. A finding there is fixed here like any other review comment.
+
+`deny.toml` is a gate file too: licences, advisories and sources, checked by
+`cargo deny` in CI.
 
 ## Limits
 

@@ -10,8 +10,8 @@ use gecko_command_domain::line::{
     Verdict, capabilities_of, live_binding, not_listed, pre_filter, sensitive, unknown_command,
 };
 use gecko_command_domain::run::{Event, Run, Step, approx_left, end_of};
-use gecko_hub_protocol::failure::lost_failure;
-use gecko_hub_protocol::hub::{Binding, BindingState};
+use gecko_hub_protocol::lost_failure;
+use gecko_hub_protocol::{Binding, BindingState};
 use gecko_hub_protocol::{Closed, HubConnection, HubEvent, Session};
 use gecko_kernel::{Clock, Failure, IdSource, Interrupts, Outcome, Reporter, gone_message};
 use gecko_wire::{Capabilities, Effect};

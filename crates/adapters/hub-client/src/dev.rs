@@ -23,9 +23,9 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::{self, Message};
 
-use crate::select::is_local_host;
 use crate::{CallError, Closed, HubError, HubEvent, net};
 use gecko_hub_protocol::HubConnection;
+use gecko_hub_protocol::is_local_host;
 
 #[derive(Clone, Debug)]
 pub struct DevOptions {

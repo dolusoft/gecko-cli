@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use gecko_hub_protocol::hub::{Binding, BindingState, HubStatus};
+use gecko_hub_protocol::{Binding, BindingState, HubStatus};
 use gecko_kernel::{Failure, Outcome, gone_message, no_binding};
 use gecko_wire::{Capabilities, read_parts, version_below};
 use gecko_wire::{HelpResult, Status};

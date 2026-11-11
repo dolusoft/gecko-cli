@@ -3,7 +3,7 @@
 //! from the hub (`binding.where`, published by the tab, §5.9); the CLI does not ask the
 //! tab for it.
 
-use gecko_hub_protocol::hub::{Binding, BindingState, User, Where};
+use gecko_hub_protocol::{Binding, BindingState, User, Where};
 use gecko_kernel::{Outcome, gone_message};
 use serde::Serialize;
 

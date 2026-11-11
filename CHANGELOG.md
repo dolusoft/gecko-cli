@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.0
+
+Binding is one line now: a Gecko tab gives `gecko attach <code>`, and sign-in is gone.
+The hosted Gecko hub is not available yet: this release works with the local
+development hub only.
+
 - The TypeScript build and its tests are removed; the repository is Rust only.
 - Binding with one line: **Attach CLI** in a Gecko tab gives `gecko attach <code>`,
   which binds the CLI to that tab. `gecko attach -` reads the code from stdin. The code

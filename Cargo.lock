@@ -225,7 +225,7 @@ dependencies = [
 
 [[package]]
 name = "gecko"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "futures-util",
  "gecko-binding-contract",
@@ -249,7 +249,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-binding-contract"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "gecko-hub-protocol",
  "gecko-kernel",
@@ -258,7 +258,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-binding-domain"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "gecko-binding-contract",
  "gecko-hub-protocol",
@@ -269,7 +269,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-binding-module"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "gecko-binding-contract",
  "gecko-binding-domain",
@@ -284,14 +284,14 @@ dependencies = [
 
 [[package]]
 name = "gecko-command-contract"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "gecko-kernel",
 ]
 
 [[package]]
 name = "gecko-command-domain"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "gecko-hub-protocol",
  "gecko-kernel",
@@ -302,7 +302,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-command-module"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "gecko-command-contract",
  "gecko-command-domain",
@@ -315,7 +315,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-dev-hub"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "futures-util",
  "getrandom 0.4.3",
@@ -330,7 +330,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-hub-client"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "futures-util",
  "gecko-hub-protocol",
@@ -349,7 +349,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-hub-protocol"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "gecko-kernel",
  "serde",
@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-kernel"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -366,7 +366,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-testkit"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "futures-util",
  "gecko-dev-hub",
@@ -378,7 +378,7 @@ dependencies = [
 
 [[package]]
 name = "gecko-wire"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",

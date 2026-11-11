@@ -12,7 +12,6 @@
 //!
 //! Interim: set up in B0 of the restructuring. The binary's crate was `legacy` until its
 //! code had moved to the bounded contexts (B4); the list of legacy crates only shrinks.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -176,32 +175,37 @@ fn relative(root: &Path, path: &Path) -> String {
 }
 
 fn parse_metadata(metadata: &Value) -> Workspace {
-    let root = PathBuf::from(metadata["workspace_root"].as_str().unwrap());
+    let root = PathBuf::from(metadata["workspace_root"].as_str().expect("parse_metadata"));
     let ids: BTreeSet<&str> = metadata["workspace_members"]
         .as_array()
-        .unwrap()
+        .expect("parse_metadata")
         .iter()
-        .map(|id| id.as_str().unwrap())
+        .map(|id| id.as_str().expect("parse_metadata"))
         .collect();
-    let packages = metadata["packages"].as_array().unwrap();
+    let packages = metadata["packages"].as_array().expect("parse_metadata");
     let name_of: BTreeMap<&str, &str> = packages
         .iter()
-        .map(|p| (p["id"].as_str().unwrap(), p["name"].as_str().unwrap()))
+        .map(|p| {
+            (
+                p["id"].as_str().expect("parse_metadata"),
+                p["name"].as_str().expect("parse_metadata"),
+            )
+        })
         .collect();
     let members = packages
         .iter()
-        .filter(|p| ids.contains(p["id"].as_str().unwrap()))
+        .filter(|p| ids.contains(p["id"].as_str().expect("parse_metadata")))
         .map(|p| {
-            let manifest = Path::new(p["manifest_path"].as_str().unwrap());
+            let manifest = Path::new(p["manifest_path"].as_str().expect("parse_metadata"));
             Member {
-                name: p["name"].as_str().unwrap().to_owned(),
-                dir: relative(&root, manifest.parent().unwrap()),
+                name: p["name"].as_str().expect("parse_metadata").to_owned(),
+                dir: relative(&root, manifest.parent().expect("parse_metadata")),
                 deps: p["dependencies"]
                     .as_array()
-                    .unwrap()
+                    .expect("parse_metadata")
                     .iter()
                     .map(|d| Dep {
-                        name: d["name"].as_str().unwrap().to_owned(),
+                        name: d["name"].as_str().expect("parse_metadata").to_owned(),
                         kind: Kind::of(&d["kind"]),
                         optional: d["optional"].as_bool().unwrap_or(false),
                         local: d["path"].is_string(),
@@ -211,22 +215,31 @@ fn parse_metadata(metadata: &Value) -> Workspace {
         })
         .collect();
     let mut graph = Graph::new();
-    for node in metadata["resolve"]["nodes"].as_array().unwrap() {
+    for node in metadata["resolve"]["nodes"]
+        .as_array()
+        .expect("parse_metadata")
+    {
         let edges = node["deps"]
             .as_array()
-            .unwrap()
+            .expect("parse_metadata")
             .iter()
             .map(|d| {
                 let kinds = d["dep_kinds"]
                     .as_array()
-                    .unwrap()
+                    .expect("parse_metadata")
                     .iter()
                     .map(|k| Kind::of(&k["kind"]))
                     .collect();
-                (name_of[d["pkg"].as_str().unwrap()].to_owned(), kinds)
+                (
+                    name_of[d["pkg"].as_str().expect("parse_metadata")].to_owned(),
+                    kinds,
+                )
             })
             .collect();
-        graph.insert(name_of[node["id"].as_str().unwrap()].to_owned(), edges);
+        graph.insert(
+            name_of[node["id"].as_str().expect("parse_metadata")].to_owned(),
+            edges,
+        );
     }
     Workspace {
         root,
@@ -248,20 +261,20 @@ fn metadata(release: bool) -> Value {
     if release {
         command.arg("--no-default-features");
     }
-    let output = command.output().unwrap();
+    let output = command.output().expect("metadata");
     assert!(
         output.status.success(),
         "cargo metadata: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    serde_json::from_slice(&output.stdout).unwrap()
+    serde_json::from_slice(&output.stdout).expect("metadata")
 }
 
 /// Every `Cargo.toml` under `crates/`, relative to the root; `target` folders skipped.
 fn manifests_on_disk(root: &Path) -> Vec<String> {
     fn walk(root: &Path, dir: &Path, found: &mut Vec<String>) {
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
+        for entry in std::fs::read_dir(dir).expect("walk") {
+            let path = entry.expect("walk").path();
             if path.is_dir() {
                 if path.file_name().is_some_and(|n| n != "target") {
                     walk(root, &path, found);
@@ -280,14 +293,14 @@ fn manifests_on_disk(root: &Path) -> Vec<String> {
 /// Every `.rs` file under `dir`, as `(path relative to the root, text)`.
 fn sources(root: &Path, dir: &Path) -> Vec<(String, String)> {
     fn walk(root: &Path, dir: &Path, found: &mut Vec<(String, String)>) {
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
+        for entry in std::fs::read_dir(dir).expect("walk") {
+            let path = entry.expect("walk").path();
             if path.is_dir() {
                 if path.file_name().is_some_and(|n| n != "target") {
                     walk(root, &path, found);
                 }
             } else if path.extension().is_some_and(|e| e == "rs") {
-                let text = std::fs::read_to_string(&path).unwrap();
+                let text = std::fs::read_to_string(&path).expect("walk");
                 found.push((relative(root, &path), text));
             }
         }

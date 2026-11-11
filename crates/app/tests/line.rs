@@ -1,7 +1,6 @@
 //! A line for the bound tab as a process, against a scripted development hub that
 //! plays the tab too: it publishes a capability list in `status`, stamps `send`, and
 //! pushes the replies of the plan back as `reply` events.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::result_large_err)]
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -17,10 +16,10 @@ fn now_ms() -> u64 {
     u64::try_from(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("now_ms")
             .as_millis(),
     )
-    .unwrap()
+    .expect("now_ms")
 }
 
 /// What the tab answers: replies by request kind; `close` ends the socket after them.
@@ -69,9 +68,9 @@ fn standard_caps() -> Option<Value> {
 }
 
 fn hub(plan: Plan) -> (String, Arc<Mutex<Seen>>) {
-    let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    std_listener.set_nonblocking(true).unwrap();
-    let host = std_listener.local_addr().unwrap().to_string();
+    let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("hub");
+    std_listener.set_nonblocking(true).expect("hub");
+    let host = std_listener.local_addr().expect("hub").to_string();
     let seen = Arc::new(Mutex::new(Seen::default()));
     let log = seen.clone();
     let address = host.clone();
@@ -79,11 +78,11 @@ fn hub(plan: Plan) -> (String, Arc<Mutex<Seen>>) {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .unwrap();
+            .expect("hub");
         runtime.block_on(async move {
-            let listener = TcpListener::from_std(std_listener).unwrap();
+            let listener = TcpListener::from_std(std_listener).expect("hub");
             loop {
-                let (tcp, _) = listener.accept().await.unwrap();
+                let (tcp, _) = listener.accept().await.expect("hub");
                 tokio::spawn(serve(tcp, plan.clone(), log.clone(), address.clone()));
             }
         });
@@ -94,7 +93,10 @@ fn hub(plan: Plan) -> (String, Arc<Mutex<Seen>>) {
 type Socket = tokio_tungstenite::WebSocketStream<TcpStream>;
 
 async fn say(socket: &mut Socket, frame: Value) {
-    socket.send(Message::text(frame.to_string())).await.unwrap();
+    socket
+        .send(Message::text(frame.to_string()))
+        .await
+        .expect("say");
 }
 
 async fn serve(tcp: TcpStream, plan: Plan, log: Arc<Mutex<Seen>>, host: String) {
@@ -111,10 +113,10 @@ async fn serve(tcp: TcpStream, plan: Plan, log: Arc<Mutex<Seen>>, host: String) 
         let Message::Text(text) = message else {
             continue;
         };
-        let frame: Value = serde_json::from_str(text.as_str()).unwrap();
-        let method = frame["method"].as_str().unwrap().to_owned();
+        let frame: Value = serde_json::from_str(text.as_str()).expect("serve");
+        let method = frame["method"].as_str().expect("serve").to_owned();
         let id = frame["id"].clone();
-        log.lock().unwrap().methods.push(method.clone());
+        log.lock().expect("serve").methods.push(method.clone());
         match method.as_str() {
             "status" => {
                 let mut binding = json!({
@@ -155,7 +157,7 @@ async fn serve(tcp: TcpStream, plan: Plan, log: Arc<Mutex<Seen>>, host: String) 
                     continue;
                 }
                 let envelope = frame["args"]["envelope"].clone();
-                log.lock().unwrap().envelopes.push(envelope.clone());
+                log.lock().expect("serve").envelopes.push(envelope.clone());
                 let now = now_ms();
                 say(
                     &mut socket,
@@ -202,21 +204,21 @@ fn signed_in(name: &str, host: &str) -> PathBuf {
         .join("line")
         .join(name);
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir_all(&dir).expect("signed_in");
     let token = json!({
         "hub": format!("http://{host}"), "accessToken": "at-1",
         "accessExpiresAt": now_ms() + 3_600_000, "refreshToken": "rt-1", "grantId": "g_1",
         "bindingId": "b1", "level": "ask-server", "user": { "id": "u1", "name": "Zahit" }
     });
-    std::fs::write(dir.join("token.json"), token.to_string()).unwrap();
+    std::fs::write(dir.join("token.json"), token.to_string()).expect("signed_in");
     dir
 }
 
 fn run(name: &str, plan: Plan, args: &[&str]) -> (Output, Seen) {
     let (host, log) = hub(plan);
     let dir = signed_in(name, &host);
-    let output = gecko(&dir, args).output().unwrap();
-    let seen = log.lock().unwrap().clone();
+    let output = gecko(&dir, args).output().expect("run");
+    let seen = log.lock().expect("run").clone();
     (output, seen)
 }
 
@@ -237,17 +239,17 @@ fn gecko(dir: &Path, args: &[&str]) -> Command {
 }
 
 fn text(bytes: &[u8]) -> String {
-    String::from_utf8(bytes.to_vec()).unwrap()
+    String::from_utf8(bytes.to_vec()).expect("text")
 }
 
 fn json_of(output: &Output) -> Value {
-    serde_json::from_slice(&output.stdout).unwrap()
+    serde_json::from_slice(&output.stdout).expect("json_of")
 }
 
 fn kinds(seen: &Seen) -> Vec<String> {
     seen.envelopes
         .iter()
-        .map(|e| e["kind"].as_str().unwrap().to_owned())
+        .map(|e| e["kind"].as_str().expect("kinds").to_owned())
         .collect()
 }
 

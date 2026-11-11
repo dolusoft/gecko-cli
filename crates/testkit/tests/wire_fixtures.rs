@@ -3,7 +3,6 @@
 //! reads, the command name rule and the limits it checks before sending. Every
 //! published version in the repository runs. The test lives here, not in `gecko-wire`,
 //! because reading the files is I/O and the protocol crate has none.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use gecko_testkit::fixture as load;
 use gecko_wire::{Capabilities, Effect, read_parts};
@@ -22,7 +21,7 @@ fn examples(file: &str) -> Vec<(String, Value)> {
         .flat_map(|version| {
             load(version, file)
                 .as_array()
-                .unwrap()
+                .expect("examples")
                 .iter()
                 .map(|example| (format!("{version} {}", name(example)), example.clone()))
                 .collect::<Vec<_>>()
@@ -31,7 +30,7 @@ fn examples(file: &str) -> Vec<(String, Value)> {
 }
 
 fn name(example: &Value) -> &str {
-    example["name"].as_str().unwrap()
+    example["name"].as_str().expect("name")
 }
 
 fn number(n: f64) -> Value {
@@ -64,7 +63,7 @@ fn as_read(reply: &Reply) -> Value {
     map.insert("kind".into(), json!(kind));
     map.insert("id".into(), json!(reply.id()));
     let status = |s: Status| json!(if s == Status::Ok { "ok" } else { "error" });
-    let class = |c: ErrorClass| serde_json::to_value(c).unwrap();
+    let class = |c: ErrorClass| serde_json::to_value(c).expect("as_read");
     match reply {
         Reply::Received(r) => {
             map.insert("hidden".into(), json!(r.hidden));
@@ -156,14 +155,14 @@ fn reply_of(example: &Value) -> Read {
 fn parts_of(example: &Value) -> Vec<String> {
     example["parts"]
         .as_array()
-        .unwrap()
+        .expect("parts_of")
         .iter()
-        .map(|p| p.as_str().unwrap().to_owned())
+        .map(|p| p.as_str().expect("parts_of").to_owned())
         .collect()
 }
 
 fn caps_json(caps: &Capabilities) -> Value {
-    serde_json::to_value(caps).unwrap()
+    serde_json::to_value(caps).expect("caps_json")
 }
 
 #[test]

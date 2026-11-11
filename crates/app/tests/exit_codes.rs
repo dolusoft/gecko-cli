@@ -15,6 +15,7 @@ const EXIT_CODES: &[(&str, u8)] = &[
     ("usage", 2),
     ("unsupported-version", 2),
     ("unknown-command", 2),
+    ("too-large", 2),
     ("not-allowed", 3),
     ("no-terminal-access", 3),
     ("untrusted-hub", 3),
@@ -37,9 +38,6 @@ const EXIT_CODES: &[(&str, u8)] = &[
     ("cancel-requested", 130),
     ("cancelled-before-start", 130),
 ];
-
-/// Codes the CLI writes whose exit code is wrong today; each has an ignored test.
-const WRONG_TODAY: &[&str] = &["too-large"];
 
 /// The source folders of every crate that writes the CLI's failures, from the
 /// workspace root. Each is scanned with its subfolders.
@@ -110,9 +108,7 @@ fn the_table_has_every_code_the_cli_writes() {
     for path in &files {
         let text = std::fs::read_to_string(path).unwrap();
         for code in codes_written(&text) {
-            let known =
-                EXIT_CODES.iter().any(|(c, _)| *c == code) || WRONG_TODAY.contains(&code.as_str());
-            if !known {
+            if !EXIT_CODES.iter().any(|(c, _)| *c == code) {
                 missing.push(format!("{}: {code}", path.display()));
             }
         }
@@ -121,9 +117,8 @@ fn the_table_has_every_code_the_cli_writes() {
 }
 
 /// command-console puts `too-large` in the class `usage` (exit 2), and so did the
-/// TypeScript CLI; the CLI's own `too-large` (a line over the limits) exits 1.
+/// TypeScript CLI; so does the CLI's own `too-large` (a line over the limits).
 #[test]
-#[ignore = "too-large exits 1, the contract says 2 (usage); a user-visible change waits for a decision"]
 fn too_large_is_a_usage_error() {
     assert_eq!(exit_code_of("too-large"), 2);
 }

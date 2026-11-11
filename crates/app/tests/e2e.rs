@@ -433,13 +433,9 @@ async fn a_reload_drops_the_card_and_exits_3() {
     }
 }
 
-// --- Found while writing these: waits for a decision (spec §2) ----------------------
-
-/// A line over the limits is refused before connecting, as `too-large`. command-console
-/// puts `too-large` in the class `usage` (exit 2), and so did the TypeScript CLI; this
-/// CLI exits 1. The fix changes an exit code users see.
+/// A line over the limits is refused before connecting, as `too-large`: a usage error
+/// (exit 2), as in command-console and the TypeScript CLI.
 #[tokio::test]
-#[ignore = "too-large exits 1, the contract says 2 (usage); a user-visible change waits for a decision"]
 async fn a_line_over_the_limit_is_a_usage_error() {
     let cli = Cli::new(GECKO).json();
     let line = format!("search --q {}", "a".repeat(4_000));

@@ -20,6 +20,8 @@
   confirm with. The CLI reads command-console 1.8.0 (`effect`, `approval`).
 - Exit code 6 now means an invalid or expired attach code or a refused token; an ended
   binding is 4.
+- A line over the size limits (`too-large`) exits 2, a usage error, as the contract
+  says; it exited 1.
 - On Windows the token file is yours alone also in a config directory made
   beforehand; before, such a directory could leave `SYSTEM` and `Administrators` on it.
 - The development hub sends a line held during a reload only after the returning tab

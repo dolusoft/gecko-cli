@@ -433,13 +433,9 @@ async fn a_reload_drops_the_card_and_exits_3() {
     }
 }
 
-// --- Found while writing these: waits for a decision (spec §2) ----------------------
-
-/// A line over the limits is refused before connecting, as `too-large`. command-console
-/// puts `too-large` in the class `usage` (exit 2), and so did the TypeScript CLI; this
-/// CLI exits 1. The fix changes an exit code users see.
+/// A line over the limits is refused before connecting, as `too-large`: a usage error
+/// (exit 2), as in command-console and the TypeScript CLI.
 #[tokio::test]
-#[ignore = "too-large exits 1, the contract says 2 (usage); a user-visible change waits for a decision"]
 async fn a_line_over_the_limit_is_a_usage_error() {
     let cli = Cli::new(GECKO).json();
     let line = format!("search --q {}", "a".repeat(4_000));
@@ -544,8 +540,9 @@ async fn ctrl_c_sends_cancel_and_the_tabs_answer_ends_it() {
 
 #[tokio::test]
 async fn cancelled_before_start_exits_130() {
-    // The answer comes at once; the CLI ends when its cancel wait (3 s) is over.
-    let (hub, mut tab, _cli, mut run, request) = running_read(None).await;
+    // The command did not run, so the CLI ends at the answer: a cancel wait longer
+    // than any test, and no `finished` after it.
+    let (hub, mut tab, _cli, mut run, request) = running_read(Some(600_000)).await;
     run.interrupt();
     saw_cancel(&mut tab, &request).await;
     tab.reply(&cancelled_before_start(&request.id)).await;

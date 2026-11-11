@@ -20,7 +20,7 @@ impl Failure {
 /// class instead (§5.6); this table is only for what the CLI decides by itself.
 pub fn exit_code_of(code: &str) -> u8 {
     match code {
-        "usage" | "unsupported-version" | "unknown-command" => 2,
+        "usage" | "unsupported-version" | "unknown-command" | "too-large" => 2,
         "not-allowed" | "no-terminal-access" | "untrusted-hub" | "insecure-hub"
         | "approval-dropped" => 3,
         "unreachable" | "connection-lost" | "busy" | "no-binding" | "gone" | "tab-unreachable"

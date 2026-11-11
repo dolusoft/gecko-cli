@@ -433,13 +433,9 @@ async fn a_reload_drops_the_card_and_exits_3() {
     }
 }
 
-// --- Found while writing these: waits for a decision (spec §2) ----------------------
-
-/// A line over the limits is refused before connecting, as `too-large`. command-console
-/// puts `too-large` in the class `usage` (exit 2), and so did the TypeScript CLI; this
-/// CLI exits 1. The fix changes an exit code users see.
+/// A line over the limits is refused before connecting, as `too-large`: a usage error
+/// (exit 2), as in command-console and the TypeScript CLI.
 #[tokio::test]
-#[ignore = "too-large exits 1, the contract says 2 (usage); a user-visible change waits for a decision"]
 async fn a_line_over_the_limit_is_a_usage_error() {
     let cli = Cli::new(GECKO).json();
     let line = format!("search --q {}", "a".repeat(4_000));
@@ -811,17 +807,41 @@ async fn the_token_is_renewed_30_s_before_it_ends() {
 /// `icacls` of `token.json`: inheritance removed, one entry, the user's, full control.
 ///
 /// As for a user, the CLI makes its config directory itself (`%APPDATA%\gecko-cli`
-/// does not exist before the first attach) and gives it to the user alone. A
-/// directory made beforehand, under a parent with no inheritable entries, keeps the
-/// explicit entries a new file gets there (`SYSTEM`, `Administrators`); that case is
-/// not this test's (seen on the CI's Windows runner).
+/// does not exist before the first attach) and gives it to the user alone.
 #[cfg(windows)]
 #[tokio::test]
 async fn the_token_file_is_the_users_alone() {
-    let hub = Hub::start();
-    let mut tab = Tab::open(&hub, "p1").await;
     let cli = Cli::new(GECKO);
     let dir = cli.dir().join("gecko-cli");
+    token_file_is_the_users_alone(&cli, &dir).await;
+}
+
+/// The same with a config directory made beforehand under a parent with no
+/// inheritable entries: a new file there gets explicit `SYSTEM` and `Administrators`
+/// entries from the process token (seen on the CI's Windows runner), and the CLI
+/// removes them too.
+#[cfg(windows)]
+#[tokio::test]
+async fn the_token_file_is_the_users_alone_in_a_directory_made_beforehand() {
+    let cli = Cli::new(GECKO);
+    let parent = cli.dir().join("bare");
+    std::fs::create_dir_all(&parent).expect("the parent is made");
+    let user = std::env::var("USERNAME").expect("USERNAME");
+    let status = std::process::Command::new("icacls")
+        .arg(&parent)
+        .args(["/inheritance:r", "/grant:r", &format!("{user}:F")])
+        .output()
+        .expect("icacls runs");
+    assert!(status.status.success(), "{status:?}");
+    let dir = parent.join("gecko-cli");
+    std::fs::create_dir(&dir).expect("the directory is made");
+    token_file_is_the_users_alone(&cli, &dir).await;
+}
+
+#[cfg(windows)]
+async fn token_file_is_the_users_alone(cli: &Cli, dir: &std::path::Path) {
+    let hub = Hub::start();
+    let mut tab = Tab::open(&hub, "p1").await;
     let dir_text = dir.display().to_string();
     let code = tab.attach_code("ask-server").await;
     cli.call(["attach", "-", "--trust-hub"])

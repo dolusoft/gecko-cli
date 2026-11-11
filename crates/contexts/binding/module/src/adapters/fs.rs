@@ -186,8 +186,13 @@ fn write_secret(path: &Path, text: &str, user: Option<&OsStr>) -> io::Result<()>
     result
 }
 
-/// Removes inherited rights and grants the current user alone. The file stays in the
-/// user's profile either way; the ACL is a second fence, so a failure is ignored.
+/// Leaves the current user's entry alone on the ACL. The file stays in the user's
+/// profile either way; the ACL is a second fence, so a failure is ignored.
+///
+/// A file made in a directory with no inheritable entries gets explicit ones from the
+/// process token (`SYSTEM`, `Administrators`), which `/inheritance:r` keeps; so a file
+/// is first `/reset` to what it inherits, and then loses that too. A directory is
+/// restricted only when the CLI makes it.
 #[cfg(windows)]
 fn restrict_windows(path: &Path, directory: bool, user: Option<&OsStr>) {
     use std::os::windows::process::CommandExt;
@@ -196,18 +201,22 @@ fn restrict_windows(path: &Path, directory: bool, user: Option<&OsStr>) {
     let Some(user) = user else {
         return;
     };
+    let icacls = |args: &[&OsStr]| {
+        Command::new("icacls")
+            .arg(path)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .status()
+    };
+    if !directory {
+        let _ = icacls(&["/reset".as_ref()]);
+    }
     let mut grant = user.to_owned();
     grant.push(if directory { ":(OI)(CI)F" } else { ":F" });
-    let _ = Command::new("icacls")
-        .arg(path)
-        .arg("/inheritance:r")
-        .arg("/grant:r")
-        .arg(grant)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
-        .status();
+    let _ = icacls(&["/inheritance:r".as_ref(), "/grant:r".as_ref(), &grant]);
 }
 
 #[cfg(not(windows))]

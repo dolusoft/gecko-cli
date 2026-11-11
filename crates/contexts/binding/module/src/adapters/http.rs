@@ -3,7 +3,7 @@
 //! the token never goes into an address. When to refresh and what a refusal means are
 //! the domain's (`gecko_binding_domain::token`).
 
-use gecko_binding_contract::{StoredToken, TokenStore, User};
+use gecko_binding_contract::{CodeExchange, StoredToken, TokenStore, User};
 use gecko_binding_domain::token::{
     attach_refused, binding_ended, expires_at, needs_refresh, refresh_refused,
 };
@@ -165,6 +165,31 @@ impl Auth {
             .write_token(&next)
             .map_err(|error| Failure::new("failed", format!("cannot save the token: {error}")))?;
         Ok(next)
+    }
+}
+
+/// The [`CodeExchange`] over the hub's `POST /cli/attach`, following the CLI's proxy rule.
+#[derive(Debug, Clone)]
+pub struct HttpExchange {
+    proxy: ProxyRule,
+}
+
+impl HttpExchange {
+    pub fn new(proxy: ProxyRule) -> HttpExchange {
+        HttpExchange { proxy }
+    }
+}
+
+impl CodeExchange for HttpExchange {
+    async fn exchange(
+        &self,
+        hub: &str,
+        secret: &str,
+        clock: &impl Clock,
+    ) -> Result<StoredToken, Failure> {
+        Auth::new(hub, self.proxy.clone())?
+            .attach(secret, clock)
+            .await
     }
 }
 

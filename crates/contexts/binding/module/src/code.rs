@@ -1,38 +1,35 @@
 //! An attach code opened: the domain decodes it and checks its hub address; the address
 //! is parsed as a URL here.
 
-use gecko_binding_domain::code::{Address, AttachCode, decode, hub_origin};
+use gecko_binding_domain::code::{Address, AttachCode};
 use gecko_kernel::Failure;
 use url::Url;
 
 /// `address` parsed as a URL, in the parts the domain's rule looks at.
 fn parse(address: &str) -> Option<Address> {
     let url = Url::parse(address).ok()?;
-    Some(Address {
-        scheme: url.scheme().to_owned(),
-        host: url.host_str().map(str::to_owned),
-        username: url.username().to_owned(),
-        password: url.password().map(str::to_owned),
-        path: url.path().to_owned(),
-        query: url.query().map(str::to_owned),
-        fragment: url.fragment().map(str::to_owned),
-        origin: url.origin().ascii_serialization(),
-    })
+    Some(
+        Address::new(
+            url.scheme(),
+            url.host_str().map(str::to_owned),
+            url.origin().ascii_serialization(),
+        )
+        .with_credentials(url.username(), url.password().map(str::to_owned))
+        .with_path(url.path())
+        .with_query(url.query().map(str::to_owned))
+        .with_fragment(url.fragment().map(str::to_owned)),
+    )
 }
 
 /// Opens a code: decoded, with its hub address as a checked origin.
 pub fn open(text: &str) -> Result<AttachCode, Failure> {
-    let code = decode(text)?;
-    Ok(AttachCode {
-        hub: hub_origin(&code.hub, parse(&code.hub))?,
-        secret: code.secret,
-    })
+    gecko_binding_domain::code::open(text, parse)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gecko_binding_domain::code::invalid;
+    use gecko_binding_domain::code::{hub_origin, invalid};
 
     fn base64url(input: &[u8]) -> String {
         const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -60,15 +57,13 @@ mod tests {
     #[test]
     fn a_code_opens() {
         let code = code_of(r#"{"v":1,"hub":"http://127.0.0.1:4400","s":"secret"}"#);
+        let opened = open(&format!("  {code}\n")).unwrap();
         assert_eq!(
-            open(&format!("  {code}\n")).unwrap(),
-            AttachCode {
-                hub: "http://127.0.0.1:4400".into(),
-                secret: "secret".into()
-            }
+            (opened.hub(), opened.secret()),
+            ("http://127.0.0.1:4400", "secret")
         );
         let https = code_of(r#"{"v":1,"hub":"https://Gecko.Example/","s":"x","later":1}"#);
-        assert_eq!(open(&https).unwrap().hub, "https://gecko.example");
+        assert_eq!(open(&https).unwrap().hub(), "https://gecko.example");
     }
 
     #[test]

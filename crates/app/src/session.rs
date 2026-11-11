@@ -5,7 +5,7 @@
 //! `gecko_hub_protocol::Session`.
 
 use gecko_binding_contract::{StoredToken, TokenStore};
-use gecko_binding_module::adapters::http::Auth;
+use gecko_binding_module::Auth;
 use gecko_hub_client::{DevOptions, DevTransport};
 use gecko_hub_protocol::HubStatus;
 use gecko_hub_protocol::{Choice, choose};

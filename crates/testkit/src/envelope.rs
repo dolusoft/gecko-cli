@@ -9,7 +9,7 @@
 //! The kinds are those of the contract: `received`, `awaiting-approval`, `chunk`,
 //! `finished`, `cancel-requested`, `cancelled-before-start` and `help-result`.
 
-use gecko_wire::reply::{Read, Reply, read_value};
+use gecko_wire::{Read, Reply, read_value};
 use serde_json::{Map, Value, json};
 
 /// The kinds a tab sends, as the contract names them.

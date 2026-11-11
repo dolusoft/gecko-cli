@@ -7,7 +7,7 @@ use gecko_binding_contract::TokenStore;
 use gecko_command_domain::line::precheck;
 use gecko_hub_protocol::HubConnection;
 use gecko_kernel::{Clock, Failure, IdSource, Interrupts, Outcome, Reporter};
-use gecko_wire::request::Input;
+use gecko_wire::Input;
 
 use crate::args::Options;
 use crate::ports::Ports;

@@ -3,8 +3,7 @@
 //! the CLI; a `help …` line asks the way `gecko help …` does.
 
 use gecko_kernel::{BIND_AGAIN, Outcome};
-use gecko_wire::reply::{HelpResult, Status};
-use gecko_wire::request;
+use gecko_wire::{HelpResult, Status};
 
 /// The last line under a list of commands.
 pub const FOOTER: &str = "CLI options come before the command name: gecko --json <command> ...; the full output with --json.";
@@ -100,14 +99,14 @@ pub fn outcome_of(help: &HelpResult, json: bool) -> Outcome {
 /// `help …` as a line (`--line "help tasks"`): its words, split at white space.
 /// Help targets and page values never hold spaces.
 pub fn line_args(line: &str) -> Option<Vec<String>> {
-    let mut words = line.split(request::is_space).filter(|w| !w.is_empty());
+    let mut words = line.split(gecko_wire::is_space).filter(|w| !w.is_empty());
     (words.next()? == "help").then(|| words.map(str::to_owned).collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gecko_wire::reply::{Read, Reply, read_value};
+    use gecko_wire::{Read, Reply, read_value};
 
     fn help(value: serde_json::Value) -> HelpResult {
         match read_value(&value) {

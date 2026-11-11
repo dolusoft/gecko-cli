@@ -14,8 +14,8 @@ use gecko_hub_protocol::failure::lost_failure;
 use gecko_hub_protocol::hub::{Binding, BindingState};
 use gecko_hub_protocol::{Closed, HubConnection, HubEvent, Session};
 use gecko_kernel::{Clock, Failure, IdSource, Interrupts, Outcome, Reporter, gone_message};
-use gecko_wire::capabilities::{Capabilities, Effect};
-use gecko_wire::request::{self, Input, fits};
+use gecko_wire::{Capabilities, Effect};
+use gecko_wire::{Input, fits};
 use tokio::time::{Instant, sleep_until};
 
 use crate::Ports;
@@ -67,7 +67,7 @@ pub async fn run_line<H: HubConnection>(
     let server_change = danger_change && command.effect() == Effect::Server;
     let v = caps.envelope().unwrap_or(1);
     let id = ports.new_id();
-    let envelope = request::cli_request(v, &id, input, view);
+    let envelope = gecko_wire::cli_request(v, &id, input, view);
     if !fits(&envelope) {
         return Err(Failure::new("too-large", "the request is over 16 KB"));
     }
@@ -129,7 +129,7 @@ pub async fn run_line<H: HubConnection>(
             Step::SendCancel => {
                 interrupted = true;
                 io.clear_progress();
-                let cancel = request::cancel(v, &id);
+                let cancel = gecko_wire::cancel(v, &id);
                 let sent = hub.send(&raw(&cancel)).await.is_ok();
                 cancel_by = Some(if sent {
                     Instant::now() + ports.settings.cancel_wait

@@ -123,7 +123,7 @@ fn tab_line(
     let input = command::input_of(argv, line);
     // The tab's `help` command is not open to the CLI: a `help …` line asks as
     // `gecko help …` does.
-    if let Ok(gecko_wire::request::Input::Line(text)) = &input
+    if let Ok(gecko_wire::Input::Line(text)) = &input
         && let Some(args) = gecko_command_domain::help::line_args(text)
     {
         return execute(options, out, err, Job::Help { args });
@@ -138,7 +138,7 @@ enum Job<'a> {
         rest: &'a [String],
     },
     Line {
-        input: Result<gecko_wire::request::Input, Failure>,
+        input: Result<gecko_wire::Input, Failure>,
     },
     Help {
         args: Vec<String>,

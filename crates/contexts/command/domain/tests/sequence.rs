@@ -5,7 +5,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use gecko_command_domain::run::{Event, Run, Step};
-use gecko_wire::reply::{Read, read_value};
+use gecko_wire::{Read, read_value};
 use serde_json::Value;
 
 /// The fields of an example's `tab` this runner knows (1.8.2 `remote/README.md`); a

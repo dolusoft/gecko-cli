@@ -170,7 +170,7 @@ impl Io<'_> {
     pub fn emit(&mut self, outcome: &Outcome) -> u8 {
         self.clear_progress();
         if self.json {
-            let text = gecko_wire::ascii::to_ascii_json(outcome)
+            let text = gecko_wire::to_ascii_json(outcome)
                 .unwrap_or_else(|_| "{\"v\":1,\"status\":\"error\"}".to_owned());
             let _ = writeln!(self.out, "{text}");
         } else if outcome.status == "ok" {

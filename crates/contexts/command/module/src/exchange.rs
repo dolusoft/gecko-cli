@@ -10,8 +10,7 @@ use gecko_hub_protocol::failure::{call_failure, lost_failure};
 use gecko_hub_protocol::hub::HubStatus;
 use gecko_hub_protocol::{CallError, Closed, HubConnection, HubEvent};
 use gecko_kernel::{Clock, Failure, IdSource, Interrupts, gone_message, no_binding};
-use gecko_wire::reply::{Read, Reply, read_value};
-use gecko_wire::request;
+use gecko_wire::{Read, Reply, read_value};
 use serde_json::Value;
 use serde_json::value::RawValue;
 use tokio::time::{Instant, sleep_until};
@@ -130,7 +129,7 @@ pub(crate) async fn ask<H: HubConnection>(
     interrupts: &mut impl Interrupts,
 ) -> Result<Answer, Failure> {
     let id = ports.new_id();
-    let envelope = request::help_request(v, &id, argv, json_wanted, width);
+    let envelope = gecko_wire::help_request(v, &id, argv, json_wanted, width);
     let stamp = match send(hub, &envelope).await {
         Ok(stamp) => stamp,
         Err(Sent::Refused(failure)) => return Err(failure),

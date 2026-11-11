@@ -1,29 +1,19 @@
 //! The examples published with command-console (`fixtures/command-console-<version>/`)
-//! against the CLI's side of the contract: replies and capabilities it reads, the
-//! command name rule and the limits it checks before sending. Every published version
-//! in the repository runs.
+//! against the CLI's side of the contract in `gecko-wire`: replies and capabilities it
+//! reads, the command name rule and the limits it checks before sending. Every
+//! published version in the repository runs. The test lives here, not in `gecko-wire`,
+//! because reading the files is I/O and the protocol crate has none.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::path::PathBuf;
-
-use gecko_wire::capabilities::{Capabilities, Effect, read_parts};
-use gecko_wire::class::{Danger, ErrorClass};
-use gecko_wire::reply::{Read, Reply, Status, read_reply};
-use gecko_wire::request::{Input, check_limits, command_name};
+use gecko_testkit::fixture as load;
+use gecko_wire::{Capabilities, Effect, read_parts};
+use gecko_wire::{Danger, ErrorClass};
+use gecko_wire::{Input, check_limits, command_name};
+use gecko_wire::{Read, Reply, Status, read_reply};
 use serde_json::{Map, Value, json};
 
 /// The fixture folders, oldest first.
 const VERSIONS: [&str; 2] = ["1.7.2", "1.8.2"];
-
-fn load(version: &str, file: &str) -> Value {
-    let path = PathBuf::from(env!(
-        "GECKO_CLI_FIXTURES_DIR",
-        "set in .cargo/config.toml; run cargo inside the repository"
-    ))
-    .join(format!("command-console-{version}/remote"))
-    .join(file);
-    serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
-}
 
 /// The examples of `file` in every version, each with its label (`1.8.2 name`).
 fn examples(file: &str) -> Vec<(String, Value)> {

@@ -7,7 +7,7 @@
 //! The CLI's own observation decides between "not run" (4) and "unknown" (5): before
 //! `received` the command's `danger` counts, after it the tab's `change` flag does.
 
-use gecko_wire::reply::{Chunk, Finished, Reply, Status};
+use gecko_wire::{Chunk, Finished, Reply, Status};
 
 use gecko_kernel::{Outcome, ViewInfo};
 
@@ -57,7 +57,7 @@ enum CancelAnswer {
 pub struct Run {
     /// The command's `danger` is `change` (or unknown).
     danger_change: bool,
-    received: Option<gecko_wire::reply::Received>,
+    received: Option<gecko_wire::Received>,
     /// Set by `awaiting-approval`: the tab is about to change data.
     approving: bool,
     /// When the approval runs out, on the tab's clock.
@@ -444,7 +444,7 @@ mod tests {
             id: "r".into(),
             status: Status::Ok,
             summary: Some("Task 8812 stopped".into()),
-            failure: gecko_wire::reply::Failure {
+            failure: gecko_wire::Failure {
                 code: None,
                 class: None,
                 message: None,

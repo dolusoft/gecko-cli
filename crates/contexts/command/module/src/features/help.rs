@@ -6,7 +6,7 @@
 use gecko_command_domain::help::{Answer, ended, outcome_of};
 use gecko_command_domain::line::{capabilities_of, live_binding};
 use gecko_hub_protocol::HubConnection;
-use gecko_hub_protocol::hub::HubStatus;
+use gecko_hub_protocol::HubStatus;
 use gecko_kernel::{Clock, Failure, IdSource, Interrupts, Outcome, Reporter};
 
 use crate::Ports;

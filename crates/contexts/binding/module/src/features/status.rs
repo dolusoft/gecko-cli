@@ -6,7 +6,7 @@ use std::time::Instant;
 use gecko_binding_contract::{HubOpener, Ports, TokenStore};
 use gecko_binding_domain::status::{BindingData, HubReach, StatusData, status_outcome};
 use gecko_hub_protocol::HubConnection;
-use gecko_hub_protocol::hub::User;
+use gecko_hub_protocol::User;
 use gecko_kernel::{Clock, Failure, Outcome};
 
 /// Gathers the status. Never binds. No binding: exit 0 and says how to bind; hub

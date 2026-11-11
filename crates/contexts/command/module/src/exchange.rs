@@ -6,9 +6,9 @@ use std::time::Duration;
 
 use gecko_command_domain::help::Answer;
 use gecko_command_domain::line::Stamp;
-use gecko_hub_protocol::failure::{call_failure, lost_failure};
-use gecko_hub_protocol::hub::HubStatus;
+use gecko_hub_protocol::HubStatus;
 use gecko_hub_protocol::{CallError, Closed, HubConnection, HubEvent};
+use gecko_hub_protocol::{call_failure, lost_failure};
 use gecko_kernel::{Clock, Failure, IdSource, Interrupts, gone_message, no_binding};
 use gecko_wire::{Read, Reply, read_value};
 use serde_json::Value;

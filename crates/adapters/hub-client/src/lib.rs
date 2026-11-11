@@ -7,7 +7,7 @@
 //! 4a). Neither reconnects, so a command is never sent twice.
 //!
 //! The contract types, the address rules and the connection port (`HubConnection`) live
-//! in `gecko-hub-protocol`; they are re-exported here under their old paths. The
+//! in `gecko-hub-protocol`; the types a transport hands back are re-exported here. The
 //! development transport implements the port; the SignalR connection does not yet (the
 //! CLI does not open it).
 
@@ -18,5 +18,4 @@ pub mod signalr;
 pub mod tcp;
 
 pub use gecko_hub_protocol::HubConnection as Transport;
-pub use gecko_hub_protocol::address as select;
-pub use gecko_hub_protocol::{CallError, Closed, HubError, HubEvent, hub};
+pub use gecko_hub_protocol::{CallError, Closed, HubError, HubEvent};

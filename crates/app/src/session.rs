@@ -1,16 +1,16 @@
 //! One `gecko` call's connection to the hub: the binding's token, the transport for its
 //! hub and the hub's `status`. Every path that fails after connecting closes the
 //! connection before it returns. What a closed connection means as a failure is
-//! `gecko_hub_protocol::failure`; the open connection with its status is
+//! `gecko_hub_protocol` (`failure.rs`); the open connection with its status is
 //! `gecko_hub_protocol::Session`.
 
 use gecko_binding_contract::{StoredToken, TokenStore};
 use gecko_binding_module::adapters::http::Auth;
 use gecko_hub_client::dev::{DevOptions, DevTransport};
-use gecko_hub_protocol::address::{Choice, choose};
-use gecko_hub_protocol::failure::{call_failure, open_failure};
-use gecko_hub_protocol::hub::HubStatus;
+use gecko_hub_protocol::HubStatus;
+use gecko_hub_protocol::{Choice, choose};
 use gecko_hub_protocol::{Closed, HubConnection, Session};
+use gecko_hub_protocol::{call_failure, open_failure};
 use gecko_kernel::{Clock, Failure, IdSource, no_binding};
 use serde::de::DeserializeOwned;
 use serde_json::value::RawValue;

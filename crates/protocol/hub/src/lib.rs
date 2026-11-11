@@ -4,14 +4,19 @@
 //! (`address`), what each of them means as a failure (`failure`), the port of a
 //! connection (`HubConnection`) and an open connection with its status (`Session`). No
 //! I/O; a transport (`gecko-hub-client`) implements the port and carries these.
+//!
+//! The modules are private; every name is exported from the crate root.
 
-pub mod address;
+mod address;
 mod connection;
-pub mod failure;
-pub mod hub;
+mod failure;
+mod hub;
 mod session;
 
+pub use address::{Choice, choose, is_local_host};
 pub use connection::HubConnection;
+pub use failure::{call_failure, lost_failure, open_failure};
+pub use hub::{Binding, BindingState, HubStatus, User, Where};
 pub use session::Session;
 
 use serde::Deserialize;

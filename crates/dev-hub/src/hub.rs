@@ -44,6 +44,14 @@ const CODE_PREFIX: &str = "gk1_";
 /// The one message of every refused secret: unknown, used and expired look alike.
 const INVALID_CODE: &str = "the code is invalid or expired";
 
+/// The token endpoint and the revocation endpoint, at the paths the hosted hub's gateway
+/// gives IdentityApi (#1974 KA-1).
+pub const TOKEN_PATH: &str = "/api/v0/connect/token";
+pub const REVOKE_PATH: &str = "/api/v0/connect/revoke";
+
+/// The extension grant that spends an attach code (RFC 6749 §4.5).
+pub const ATTACH_CODE_GRANT: &str = "urn:dolusoft:grant-type:attach_code";
+
 /// A fake user of the development hub.
 #[derive(Debug, Clone, Deserialize)]
 pub struct User {
@@ -634,7 +642,7 @@ impl Hub {
         }
     }
 
-    /// Revokes a grant from outside (the profile, `/oauth/revoke`): its binding ends.
+    /// Revokes a grant from outside (the profile, the revocation endpoint): its binding ends.
     fn revoke(&mut self, grant_id: &str, reason: &'static str) {
         for index in 0..self.bindings.len() {
             if self.bindings[index].grant_id == grant_id {
@@ -738,13 +746,12 @@ impl Hub {
             return (404, json!({ "error": "not_found" }));
         }
 
-        if path == "/cli/attach" {
-            return self.cli_attach(body, peer);
-        }
-
-        if path == "/oauth/token" {
-            if body.get("grant_type").and_then(Value::as_str) != Some("refresh_token") {
-                return (400, json!({ "error": "unsupported_grant_type" }));
+        // One token endpoint for both grants, as the hosted hub's IdentityApi (#1974 KA-1).
+        if path == TOKEN_PATH {
+            match body.get("grant_type").and_then(Value::as_str) {
+                Some(ATTACH_CODE_GRANT) => return self.cli_attach(body, peer),
+                Some("refresh_token") => {}
+                _ => return (400, json!({ "error": "unsupported_grant_type" })),
             }
             let wanted = body.get("refresh_token").and_then(Value::as_str);
             let at = now();
@@ -776,7 +783,7 @@ impl Hub {
             );
         }
 
-        if path == "/oauth/revoke" {
+        if path == REVOKE_PATH {
             let wanted = body.get("token").and_then(Value::as_str);
             let grant = self
                 .grants
@@ -824,12 +831,16 @@ impl Hub {
         (404, json!({ "error": "not_found" }))
     }
 
-    /// `POST /cli/attach { secret }` (attach spec §10.2): the code is used up at once,
+    /// The attach-code grant at the token endpoint, `code=<secret>` (attach spec §10.2,
+    /// #1974 KA-1): the code is used up at once,
     /// a grant is born with the binding on the page that made the code, and the CLI
     /// gets its tokens.
     fn cli_attach(&mut self, body: &Map<String, Value>, peer: &str) -> (u16, Value) {
         let refused = |status: u16, code: &str, message: &str| {
-            (status, json!({ "error": code, "message": message }))
+            (
+                status,
+                json!({ "error": code, "error_description": message }),
+            )
         };
         if self.too_many_attempts(peer) {
             return refused(
@@ -839,7 +850,7 @@ impl Hub {
             );
         }
         self.purge_codes();
-        let wanted = body.get("secret").and_then(Value::as_str).unwrap_or("");
+        let wanted = body.get("code").and_then(Value::as_str).unwrap_or("");
         let digest = hash(wanted);
         let found = (!wanted.is_empty())
             .then(|| self.attach_codes.iter().position(|c| c.hash == digest))

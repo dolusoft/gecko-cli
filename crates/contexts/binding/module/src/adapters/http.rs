@@ -1,5 +1,6 @@
-//! The hub's HTTP side: an attach code's secret turned into tokens (`POST /cli/attach`,
-//! attach spec §10.2) and the token's refresh. Requests follow the CLI's proxy rule;
+//! The hub's HTTP side: an attach code's secret turned into tokens and the token's
+//! refresh, both at the token endpoint behind the gateway (IdentityApi, #1974 KA-1;
+//! attach spec §10.2). Requests follow the CLI's proxy rule;
 //! the token never goes into an address. When to refresh and what a refusal means are
 //! the domain's (`gecko_binding_domain::token`).
 
@@ -14,6 +15,12 @@ use serde_json::{Map, Value};
 use url::Url;
 
 const CLIENT_ID: &str = "gecko-cli";
+
+/// The token endpoint behind the gateway; the development hub serves the same path.
+const TOKEN_PATH: &str = "/api/v0/connect/token";
+
+/// The extension grant that spends an attach code (RFC 6749 §4.5).
+const ATTACH_CODE_GRANT: &str = "urn:dolusoft:grant-type:attach_code";
 
 /// One hub's HTTP routes.
 #[derive(Debug, Clone)]
@@ -46,15 +53,18 @@ impl Auth {
         url
     }
 
-    /// POSTs a body and reads a JSON object back; a body that is not one reads as `{}`.
-    async fn post(&self, path: &str, content_type: &str, body: String) -> Result<Answer, Failure> {
+    /// POSTs a form and reads a JSON object back; a body that is not one reads as `{}`.
+    async fn post_form(&self, path: &str, form: &[(&str, &str)]) -> Result<Answer, Failure> {
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(form)
+            .finish();
         let url = self.endpoint(path);
         let unreachable =
             |detail: String| Failure::new("unreachable", format!("cannot reach {url}: {detail}"));
         let client = http_client(&url, &self.proxy).map_err(unreachable)?;
         let response = client
             .post(url.clone())
-            .header("content-type", content_type)
+            .header("content-type", "application/x-www-form-urlencoded")
             .body(body)
             .send()
             .await
@@ -68,19 +78,19 @@ impl Auth {
         Ok(Answer { status, body })
     }
 
-    async fn post_form(&self, path: &str, form: &[(&str, &str)]) -> Result<Answer, Failure> {
-        let body = url::form_urlencoded::Serializer::new(String::new())
-            .extend_pairs(form)
-            .finish();
-        self.post(path, "application/x-www-form-urlencoded", body)
-            .await
-    }
-
     /// Spends the code's secret: the hub binds the tab that made it and answers with
     /// the binding's tokens.
     pub async fn attach(&self, secret: &str, clock: &impl Clock) -> Result<StoredToken, Failure> {
-        let body = serde_json::json!({ "secret": secret }).to_string();
-        let answer = self.post("/cli/attach", "application/json", body).await?;
+        let answer = self
+            .post_form(
+                TOKEN_PATH,
+                &[
+                    ("grant_type", ATTACH_CODE_GRANT),
+                    ("code", secret),
+                    ("client_id", CLIENT_ID),
+                ],
+            )
+            .await?;
         if answer.status != 200 {
             let code = answer
                 .body
@@ -128,7 +138,7 @@ impl Auth {
         }
         let answer = self
             .post_form(
-                "/oauth/token",
+                TOKEN_PATH,
                 &[
                     ("grant_type", "refresh_token"),
                     ("refresh_token", &token.refresh_token),
@@ -168,7 +178,7 @@ impl Auth {
     }
 }
 
-/// The [`CodeExchange`] over the hub's `POST /cli/attach`, following the CLI's proxy rule.
+/// The [`CodeExchange`] over the hub's token endpoint, following the CLI's proxy rule.
 #[derive(Debug, Clone)]
 pub struct HttpExchange {
     proxy: ProxyRule,
@@ -201,8 +211,8 @@ mod tests {
     fn endpoints_keep_the_origin() {
         let auth = Auth::new("https://hub.example:8443", ProxyRule::default()).unwrap();
         assert_eq!(
-            auth.endpoint("/cli/attach").as_str(),
-            "https://hub.example:8443/cli/attach"
+            auth.endpoint(TOKEN_PATH).as_str(),
+            "https://hub.example:8443/api/v0/connect/token"
         );
     }
 }

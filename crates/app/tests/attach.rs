@@ -371,7 +371,7 @@ fn a_code_binds_the_cli_and_lines_run_in_the_tab() {
         assert!(!dir.join("token.json").exists());
         let (status, refused) = http(
             &hub,
-            "/oauth/token",
+            "/api/v0/connect/token",
             json!({ "grant_type": "refresh_token", "refresh_token": token["refreshToken"] }),
         )
         .await;

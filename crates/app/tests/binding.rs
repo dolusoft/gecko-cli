@@ -1,5 +1,5 @@
 //! `gecko detach` and `status` as processes, against a scripted development hub. The
-//! same listener answers the token refresh (`POST /oauth/token`), as the hub serves
+//! same listener answers the token refresh (`POST /api/v0/connect/token`), as the hub serves
 //! both. `gecko attach` runs against the real development hub in `tests/attach.rs`.
 
 use std::path::{Path, PathBuf};

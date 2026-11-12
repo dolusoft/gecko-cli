@@ -11,6 +11,12 @@
   this computer uses `<hub>/api/v0/layouts/command-relay/cli`, WebSockets only, with
   the token in the `Authorization` header. A refused token (HTTP 401 or 403) and the
   hub's close texts (`4409 busy`, `4410 revoked`) end the call as before.
+- The attach code and the token refresh go to one token endpoint,
+  `POST <hub>/api/v0/connect/token` (form, `client_id=gecko-cli`): the code with
+  `grant_type=urn:dolusoft:grant-type:attach_code` and `code=<secret>`, the refresh
+  with `grant_type=refresh_token`. `POST /cli/attach` and `POST /oauth/token` are gone;
+  the development hub serves the new paths, and its revocation endpoint moves to
+  `POST /api/v0/connect/revoke`. Refusals come as `error` and `error_description`.
 
 ## 0.4.0
 

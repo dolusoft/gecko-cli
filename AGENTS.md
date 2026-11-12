@@ -76,6 +76,7 @@ Bu testin yanında repo sahipleri rust-kit'in denetimini (`cargo xtask arch`) re
 
 ## Kurallar
 
+- `gecko` çağrıları sırayla yapılır. Aynı bağlamadaki paralel çağrılar `call.lock` (config dizininde, `token.json`'ın yanında) üzerinde sıraya girer; en çok 30 sn bekler, sonra `busy`. Kilidi işletim sistemi tutar, süreç bitince ya da çökünce bırakılır.
 - Araç zinciri `rust-toolchain.toml`'da sabit (1.95). `unsafe` yalnız `gecko-hub-client` `tcp.rs`'teki tek Windows çağrısında, öğe üzerinde `#[allow(unsafe_code)]` ve `SAFETY` yorumuyla; başka yerde `deny`. `clippy` uyarısı hata sayılır.
 - TLS `rustls` + `ring` + `rustls-platform-verifier`; `native-tls` ve `aws-lc-rs` girmez. Yeni bağımlılık PR'da gerekçelendirilir.
 - `stdout` yalnız sonuç; bilgi `stderr`'e. `--json` ASCII.

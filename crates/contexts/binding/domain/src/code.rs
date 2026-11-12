@@ -10,7 +10,7 @@ use serde::Deserialize;
 const PREFIX: &str = "gk1_";
 
 /// The one message of a code that cannot be used: unreadable, used or expired.
-pub const INVALID_MESSAGE: &str = "the code is invalid or expired; copy a new one from the tab";
+pub const INVALID_MESSAGE: &str = "the code is invalid, expired or already used; if you did not use it, check the binding in the tab; then copy a new code";
 
 /// An opened attach code: its hub address checked and turned into an origin.
 #[derive(Debug, Clone, PartialEq, Eq)]

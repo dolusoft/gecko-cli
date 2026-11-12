@@ -334,7 +334,7 @@ fn a_code_binds_the_cli_and_lines_run_in_the_tab() {
         assert_eq!(output.status.code(), Some(6));
         assert!(
             text(&output.stderr)
-                .contains("error (invalid-code): the code is invalid or expired; copy a new one from the tab"),
+                .contains("error (invalid-code): the code is invalid, expired or already used; if you did not use it, check the binding in the tab; then copy a new code"),
             "{}",
             text(&output.stderr)
         );

@@ -10,8 +10,10 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use gecko_binding_contract::{StoredToken, TokenStore};
+use gecko_kernel::Failure;
 use serde::{Deserialize, Serialize};
 
 /// `config.json`: the settings that are not secret.
@@ -21,6 +23,12 @@ struct Settings {
     /// Hub origins the user agreed to connect to (attach spec §3.3).
     #[serde(default)]
     trusted_hubs: Vec<String>,
+}
+
+/// The held call lock; dropping it (or the process ending) lets the next call in.
+#[derive(Debug)]
+pub struct CallLock {
+    _file: fs::File,
 }
 
 /// The directory of the CLI's files.
@@ -85,6 +93,50 @@ impl Config {
 
     pub fn token_path(&self) -> PathBuf {
         self.dir.join("token.json")
+    }
+
+    /// Waits up to `wait` for the call lock (`call.lock` next to `token.json`): `gecko`
+    /// calls on one binding take turns, so a second call does not meet the hub's one
+    /// live connection per grant (`busy`) while the first still runs. The OS releases
+    /// the lock when the process ends, crash included. Without the directory there is no
+    /// binding to share, so there is nothing to lock.
+    pub fn call_lock(&self, wait: Duration) -> Result<Option<CallLock>, Failure> {
+        if !self.dir.is_dir() {
+            return Ok(None);
+        }
+        let path = self.dir.join("call.lock");
+        let cannot = |error: io::Error| {
+            Failure::new(
+                "failed",
+                format!("cannot open the call lock {}: {error}", path.display()),
+            )
+        };
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .map_err(cannot)?;
+        let deadline = Instant::now() + wait;
+        loop {
+            match file.try_lock() {
+                Ok(()) => return Ok(Some(CallLock { _file: file })),
+                Err(fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(fs::TryLockError::WouldBlock) => {
+                    return Err(Failure::new(
+                        "busy",
+                        format!(
+                            "another gecko call is still running after {} s; run gecko calls one at a time",
+                            wait.as_secs()
+                        ),
+                    ));
+                }
+                Err(fs::TryLockError::Error(error)) => return Err(cannot(error)),
+            }
+        }
     }
 
     fn ensure_dir(&self) -> io::Result<()> {

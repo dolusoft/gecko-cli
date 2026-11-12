@@ -144,11 +144,11 @@ impl Hub {
         (status, serde_json::from_str(body).unwrap_or(Value::Null))
     }
 
-    /// A refresh of `refresh_token` at `/oauth/token`.
+    /// A refresh of `refresh_token` at the token endpoint.
     pub async fn refresh(&self, refresh_token: &str) -> (u16, Value) {
         let body =
             serde_json::json!({ "grant_type": "refresh_token", "refresh_token": refresh_token });
-        self.post("/oauth/token", &body).await
+        self.post("/api/v0/connect/token", &body).await
     }
 }
 

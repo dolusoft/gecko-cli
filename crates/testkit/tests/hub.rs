@@ -159,9 +159,9 @@ async fn attach(hub: &Hub, secret: &str) -> (u16, Value) {
     http(
         hub,
         "POST",
-        "/cli/attach",
+        "/api/v0/connect/token",
         None,
-        json!({ "secret": secret }),
+        json!({ "grant_type": "urn:dolusoft:grant-type:attach_code", "code": secret }),
     )
     .await
 }
@@ -357,7 +357,7 @@ async fn refresh(hub: &Hub, tokens: &Value) -> (u16, Value) {
     http(
         hub,
         "POST",
-        "/oauth/token",
+        "/api/v0/connect/token",
         None,
         json!({ "grant_type": "refresh_token", "refresh_token": tokens["refresh_token"] }),
     )
@@ -902,7 +902,13 @@ async fn connections_are_refused_with_close_codes() {
 #[tokio::test]
 async fn removed_routes_are_gone() {
     let hub = hub(|_| {});
-    for path in ["/oauth/device_authorization", "/oauth/device/verify"] {
+    for path in [
+        "/oauth/device_authorization",
+        "/oauth/device/verify",
+        "/cli/attach",
+        "/oauth/token",
+        "/oauth/revoke",
+    ] {
         let (status, _) = http(&hub, "POST", path, Some("dev:u1"), json!({})).await;
         assert_eq!(status, 404, "{path}");
     }
@@ -911,7 +917,7 @@ async fn removed_routes_are_gone() {
     let (status, answer) = http(
         &hub,
         "POST",
-        "/oauth/token",
+        "/api/v0/connect/token",
         None,
         json!({ "grant_type": "urn:ietf:params:oauth:grant-type:device_code", "device_code": "x" }),
     )
@@ -1102,7 +1108,7 @@ async fn a_grant_revoked_from_the_profile_ends_its_binding() {
     hub.stop();
 }
 
-/// Row 2: the CLI's own `/oauth/revoke` with its refresh token ends the binding the
+/// Row 2: the CLI's own revocation endpoint with its refresh token ends the binding the
 /// same way; an unknown token is answered 200 too (RFC 7009) and ends nothing.
 #[tokio::test]
 async fn oauth_revoke_ends_the_binding() {
@@ -1110,13 +1116,13 @@ async fn oauth_revoke_ends_the_binding() {
     let (mut tab, tokens, mut cli) = bound(&hub, "p1", "ask-server").await;
 
     let unknown = json!({ "token": "cr_unknown" });
-    let (status, answer) = http(&hub, "POST", "/oauth/revoke", None, unknown).await;
+    let (status, answer) = http(&hub, "POST", "/api/v0/connect/revoke", None, unknown).await;
     assert_eq!((status, answer), (200, json!({})));
     let alive = cli.call("status", json!({})).await.unwrap();
     assert_eq!(alive["binding"]["state"], "active");
 
     let known = json!({ "token": tokens["refresh_token"] });
-    let (status, answer) = http(&hub, "POST", "/oauth/revoke", None, known).await;
+    let (status, answer) = http(&hub, "POST", "/api/v0/connect/revoke", None, known).await;
     assert_eq!((status, answer), (200, json!({})));
     assert_eq!(
         tab.event("binding").await,
@@ -1212,11 +1218,11 @@ async fn loopback_origins_may_call_the_hub() {
 async fn the_web_origin_is_the_only_one() {
     let web = "http://localhost:5173";
     let hub = hub(|options| options.web_origin = Some(web.to_owned()));
-    let answer = preflight(&hub, "/oauth/token", web).await;
+    let answer = preflight(&hub, "/api/v0/connect/token", web).await;
     assert_eq!(answer.status, 204);
     assert_eq!(answer.header("access-control-allow-origin"), Some(web));
     for origin in ["http://localhost:5174", "http://127.0.0.1:5173"] {
-        let answer = preflight(&hub, "/oauth/token", origin).await;
+        let answer = preflight(&hub, "/api/v0/connect/token", origin).await;
         assert_eq!(answer.status, 204, "{origin}");
         assert_eq!(
             answer.header("access-control-allow-origin"),

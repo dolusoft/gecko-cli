@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The attach code and the token refresh go to one token endpoint,
+  `POST <hub>/api/v0/connect/token` (form, `client_id=gecko-cli`): the code with
+  `grant_type=urn:dolusoft:grant-type:attach_code` and `code=<secret>`, the refresh
+  with `grant_type=refresh_token`. `POST /cli/attach` and `POST /oauth/token` are gone;
+  the development hub serves the new paths, and its revocation endpoint moves to
+  `POST /api/v0/connect/revoke`. Refusals come as `error` and `error_description`.
+
 ## 0.4.0
 
 Binding is one line now: a Gecko tab gives `gecko attach <code>`, and sign-in is gone.

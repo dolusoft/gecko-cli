@@ -8,7 +8,7 @@ pub const NAMES: [&str; 4] = ["attach", "detach", "help", "status"];
 pub fn usage(name: &str) -> Option<&'static str> {
     Some(match name {
         "attach" => {
-            "Usage: gecko attach <code>\n       gecko attach -          (the code from stdin)\n\nBinds to the Gecko tab the code came from: in the tab's terminal panel, choose\n\"Attach CLI\" and copy the line. The code works once, for 2 minutes. A binding\nalready in place ends once the new one stands.\n\n  --trust-hub   connects to a hub address not used before without asking (needed\n                without a terminal, with --json, and with the code from stdin)\n"
+            "Usage: gecko attach <code>\n       gecko attach -          (the code from stdin)\n\nBinds to the Gecko tab the code came from: in the tab's terminal panel, choose\n\"Attach CLI\" and copy the line. The code works once, for 2 minutes. A binding\nalready in place ends once the new one stands.\n\n  --trust-hub   connects to a hub address not used before without asking (needed\n                without a terminal, with --json, and with the code from stdin). Never run\n                an attach line with --trust-hub that someone else gave you: it\n                skips the address check.\n"
         }
         "detach" => "Usage: gecko detach\n\nEnds the binding and deletes its token.\n",
         "help" => {

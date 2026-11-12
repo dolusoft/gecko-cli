@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Calls on one binding take turns: a call waits up to 30 seconds for an earlier one
+  to end, then fails with `busy` (exit code 4). Parallel calls from an agent no longer
+  meet the hub's one live connection per binding.
+- `attach --help` and the agent notes warn against an attach line with `--trust-hub`
+  from someone else. An unusable code now says it may have been used already.
+- The CLI connects to the hosted Gecko hub over SignalR: a binding whose hub is not on
+  this computer uses `<hub>/api/v0/layouts/command-relay/cli`, WebSockets only, with
+  the token in the `Authorization` header. A refused token (HTTP 401 or 403) and the
+  hub's close texts (`4409 busy`, `4410 revoked`) end the call as before.
 - The attach code and the token refresh go to one token endpoint,
   `POST <hub>/api/v0/connect/token` (form, `client_id=gecko-cli`): the code with
   `grant_type=urn:dolusoft:grant-type:attach_code` and `code=<secret>`, the refresh

@@ -103,6 +103,13 @@ public sealed class TestHub(ConnectionRegistry registry) : Hub
     // #1974: hub methods return { ok: true, value } or { ok: false, error: { code, ... } }.
     public object Status() => new { ok = true, value = new { bound = true, connectionId = Context.ConnectionId } };
 
+    // Ends the binding: the answer first, then the `Binding` event, as the hosted hub does.
+    public async Task<object> Detach()
+    {
+        await Clients.Caller.SendAsync("Binding", new { state = "gone", reason = "detached" });
+        return new { ok = true, value = (object?)null };
+    }
+
     public async Task<object> Send(JsonElement envelope)
     {
         var kind = envelope.TryGetProperty("kind", out var value) && value.ValueKind == JsonValueKind.String

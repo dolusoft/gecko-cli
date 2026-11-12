@@ -6,7 +6,7 @@
 use std::io::IsTerminal;
 
 use gecko_binding_contract::{AttachRequest, HubOpener, StoredToken, TokenStore, TrustPrompt};
-use gecko_hub_client::DevTransport;
+use gecko_hub_client::Hub;
 use gecko_hub_protocol::Session;
 use gecko_kernel::{Clock, Failure, IdSource, Interrupts, Outcome, Reporter};
 
@@ -74,9 +74,9 @@ pub struct Opener<'a, S, C, D> {
 }
 
 impl<S: TokenStore, C: Clock, D: IdSource> HubOpener for Opener<'_, S, C, D> {
-    type Hub = DevTransport;
+    type Hub = Hub;
 
-    async fn open_with(&self, token: StoredToken) -> Result<Session<DevTransport>, Failure> {
+    async fn open_with(&self, token: StoredToken) -> Result<Session<Hub>, Failure> {
         session::open_with(self.store, token, self.ports).await
     }
 }

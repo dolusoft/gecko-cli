@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The CLI connects to the hosted Gecko hub over SignalR: a binding whose hub is not on
+  this computer uses `<hub>/api/v0/layouts/command-relay/cli`, WebSockets only, with
+  the token in the `Authorization` header. A refused token (HTTP 401 or 403) and the
+  hub's close texts (`4409 busy`, `4410 revoked`) end the call as before.
+
 ## 0.4.0
 
 Binding is one line now: a Gecko tab gives `gecko attach <code>`, and sign-in is gone.

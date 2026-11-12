@@ -778,6 +778,31 @@ async fn a_rate_limit_over_5_s_is_busy_at_once() {
 }
 
 #[tokio::test]
+async fn parallel_calls_take_turns() {
+    // An agent runs ten calls at once: they queue on the call lock, so none meets the
+    // hub's one live connection per grant (`busy`), and the tab sees one at a time.
+    let hub = Hub::start();
+    let mut tab = Tab::open(&hub, "p1").await;
+    let cli = Cli::new(GECKO).json();
+    connect(&hub, &cli, &mut tab, "ask-server").await;
+    let runs: Vec<Process> = (0..10)
+        .map(|i| cli.call(["search", "--ip", &i.to_string()]).spawn())
+        .collect();
+    for _ in 0..10 {
+        let request = tab.request().await;
+        tab.reply(&received(&request.id, Received::default())).await;
+        tab.reply(&Finished::ok("done").envelope(&request.id)).await;
+    }
+    for run in runs {
+        let output = run.output().await;
+        output.expect_code(0);
+        assert_eq!(output.json()["status"], "ok", "{output}");
+    }
+    tab.close().await;
+    hub.stop();
+}
+
+#[tokio::test]
 async fn the_token_is_renewed_30_s_before_it_ends() {
     // A 30 s token is due at once; a 2 min one is not.
     for (ttl, renewed) in [(30_000.0, true), (120_000.0, false)] {

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Calls on one binding take turns: a call waits up to 30 seconds for an earlier one
+  to end, then fails with `busy` (exit code 4). Parallel calls from an agent no longer
+  meet the hub's one live connection per binding.
+- `attach --help` and the agent notes warn against an attach line with `--trust-hub`
+  from someone else. An unusable code now says it may have been used already.
+
 ## 0.4.0
 
 Binding is one line now: a Gecko tab gives `gecko attach <code>`, and sign-in is gone.

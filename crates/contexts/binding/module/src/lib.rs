@@ -9,7 +9,7 @@ mod adapters;
 mod code;
 mod features;
 
-pub use adapters::fs::Config;
+pub use adapters::fs::{CallLock, Config};
 pub use adapters::http::{Auth, HttpExchange};
 pub use features::detach::detach;
 pub use features::status::status;

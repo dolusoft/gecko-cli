@@ -20,6 +20,7 @@ mod session;
 use std::ffi::OsString;
 use std::io::Write;
 use std::process::ExitCode;
+use std::time::Duration;
 
 use args::{Action, ArgError, Options};
 use gecko_binding_module::Config;
@@ -30,6 +31,9 @@ use output::Io;
 use ports::{Ports, RandomIds, SystemClock};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// How long a call waits for an earlier call on the same binding to end.
+const CALL_LOCK_WAIT: Duration = Duration::from_secs(30);
 
 const USAGE: &str = r#"gecko: remote control of the Gecko web terminal
 
@@ -199,6 +203,11 @@ fn execute_to(
         interrupt_stdin,
     } = environment();
     let mut io = Io::new(out, err, options.json, to_file, settings.test_tty, no_color);
+    // Held until the call ends: parallel calls on one binding take turns.
+    let _turn = match config.call_lock(CALL_LOCK_WAIT) {
+        Ok(turn) => turn,
+        Err(failure) => return io.fail(&failure),
+    };
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

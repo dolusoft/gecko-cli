@@ -6,7 +6,10 @@
 
 use gecko_binding_contract::{StoredToken, TokenStore};
 use gecko_binding_module::Auth;
-use gecko_hub_client::{DevOptions, DevTransport};
+use std::time::Duration;
+
+use gecko_hub_client::{DevOptions, DevTransport, Hub, ProxyRule};
+use gecko_hub_client::{SignalrOptions, SignalrTransport};
 use gecko_hub_protocol::HubStatus;
 use gecko_hub_protocol::{Choice, choose};
 use gecko_hub_protocol::{Closed, HubConnection, Session};
@@ -40,11 +43,43 @@ fn host_of(hub: &str) -> Result<String, Failure> {
     })
 }
 
+/// The hosted hub's CLI endpoint behind the gateway (#1974 KA-5).
+const SIGNALR_PATH: &str = "/api/v0/layouts/command-relay/cli";
+
+/// The hosted hub pings every 4 s (#1974); the CLI pings as often.
+const SIGNALR_KEEP_ALIVE: Duration = Duration::from_secs(4);
+
+/// The SignalR endpoint of a hub origin.
+fn signalr_url(hub: &str) -> String {
+    format!("{}{SIGNALR_PATH}", hub.trim_end_matches('/'))
+}
+
+/// One connection attempt with `access_token`, by the transport `choice` picked.
+async fn connect(
+    choice: Choice,
+    hub: &str,
+    host: &str,
+    access_token: &str,
+    proxy: &ProxyRule,
+) -> Result<Hub, Closed> {
+    match choice {
+        Choice::Dev => Ok(Hub::Dev(
+            DevTransport::connect(&DevOptions::new(host, access_token)).await?,
+        )),
+        Choice::SignalR => {
+            let mut options = SignalrOptions::new(signalr_url(hub), access_token);
+            options.keep_alive = SIGNALR_KEEP_ALIVE;
+            options.proxy = proxy.clone();
+            Ok(Hub::Signalr(SignalrTransport::connect(&options).await?))
+        }
+    }
+}
+
 /// Connects with the stored token; without one, `no-binding`.
 pub async fn open(
     store: &impl TokenStore,
     ports: &Ports<impl Clock, impl IdSource>,
-) -> Result<Session<DevTransport>, Failure> {
+) -> Result<Session<Hub>, Failure> {
     let token = store.read_token().ok_or_else(no_binding)?;
     open_with(store, token, ports).await
 }
@@ -55,25 +90,18 @@ pub async fn open_with(
     store: &impl TokenStore,
     token: StoredToken,
     ports: &Ports<impl Clock, impl IdSource>,
-) -> Result<Session<DevTransport>, Failure> {
+) -> Result<Session<Hub>, Failure> {
     let host = host_of(&token.hub)?;
-    if choose(&host, ports.settings.transport.as_deref()) == Choice::SignalR {
-        return Err(Failure::new(
-            "failed",
-            format!(
-                "cannot reach {}: the hosted hub is not supported yet; use the development hub",
-                token.hub
-            ),
-        ));
-    }
+    let choice = choose(&host, ports.settings.transport.as_deref());
+    let proxy = &ports.proxy;
     let auth = Auth::new(&token.hub, ports.proxy.clone())?;
     let clock = &ports.clock;
     let token = auth.current_token(store, token, false, clock).await?;
-    let mut hub = match DevTransport::connect(&DevOptions::new(&host, &token.access_token)).await {
+    let mut hub = match connect(choice, &token.hub, &host, &token.access_token, proxy).await {
         Ok(hub) => hub,
         Err(Closed::Unauthorized) => {
             let token = auth.current_token(store, token, true, clock).await?;
-            DevTransport::connect(&DevOptions::new(&host, &token.access_token))
+            connect(choice, &token.hub, &host, &token.access_token, proxy)
                 .await
                 .map_err(open_failure)?
         }
@@ -102,6 +130,18 @@ mod tests {
         assert_eq!(host_of("https://hub.example").unwrap(), "hub.example");
         assert_eq!(host_of("http://[::1]:9").unwrap(), "[::1]:9");
         assert!(host_of("not an address").is_err());
+    }
+
+    #[test]
+    fn the_signalr_endpoint_is_behind_the_gateway() {
+        assert_eq!(
+            signalr_url("https://gecko.example"),
+            "https://gecko.example/api/v0/layouts/command-relay/cli"
+        );
+        assert_eq!(
+            signalr_url("https://gecko.example/"),
+            "https://gecko.example/api/v0/layouts/command-relay/cli"
+        );
     }
 
     #[test]

@@ -12,8 +12,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use gecko_hub_client::Closed;
 use gecko_hub_client::ProxyRule;
+use gecko_hub_client::{CallError, Closed, HubEvent, SignalrTransport, Transport as _};
 use gecko_hub_client::{
     InvokeError, SignalrConnection as Connection, SignalrOptions as Options, hub_result,
 };
@@ -325,4 +325,73 @@ async fn unreachable_proxy_is_a_transport_error() {
         Some(Closed::Transport(text)) => assert!(text.contains("proxy"), "{text}"),
         other => panic!("unexpected {other:?}"),
     }
+}
+
+// --- The CLI's port over SignalR (#1974 method names) --------------------------------
+
+#[tokio::test(flavor = "current_thread")]
+async fn the_port_calls_status_send_and_detach() {
+    let Some(base) = base() else { return };
+    let mut hub = SignalrTransport::connect(&options(&base, "good"))
+        .await
+        .unwrap();
+    let status = hub.status().await.unwrap();
+    assert!(status.get().contains("\"bound\":true"), "{}", status.get());
+
+    let accepted = hub.send(&raw("{\"kind\":\"echo\",\"n\":2}")).await.unwrap();
+    assert_eq!(accepted.get(), "{\"accepted\":true}");
+    match hub.next_event().await.unwrap() {
+        HubEvent::Reply(payload) => assert_eq!(payload.get(), "{\"kind\":\"echo\",\"n\":2}"),
+        other => panic!("unexpected {other:?}"),
+    }
+
+    hub.detach().await.unwrap();
+    match hub.next_event().await.unwrap() {
+        HubEvent::Binding(payload) => {
+            assert!(payload.get().contains("\"gone\""), "{}", payload.get())
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(hub.close().await, Closed::Local);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn the_port_reads_hub_errors_and_close_texts() {
+    let Some(base) = base() else { return };
+    let mut hub = SignalrTransport::connect(&options(&base, "good"))
+        .await
+        .unwrap();
+    match hub.send(&raw("{\"kind\":\"refuse\"}")).await {
+        Err(CallError::Hub(error)) => {
+            assert_eq!(error.code, "rate-limited");
+            assert_eq!(error.retry_after_ms, Some(1000));
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    match hub.send(&raw("{\"kind\":\"throw\"}")).await {
+        Err(CallError::Hub(error)) => assert_eq!(error.code, "failed"),
+        other => panic!("unexpected {other:?}"),
+    }
+    // The Close may arrive before or after the answer; either way the end is `Revoked`.
+    let closing = hub
+        .send(&raw("{\"kind\":\"close\",\"reason\":\"4410 revoked\"}"))
+        .await;
+    if let Err(error) = closing {
+        assert_eq!(error, CallError::Closed(Closed::Revoked));
+    }
+    assert_eq!(hub.next_event().await.err(), Some(Closed::Revoked));
+
+    let mut busy = SignalrTransport::connect(&options(&base, "busy"))
+        .await
+        .unwrap();
+    assert_eq!(
+        busy.status().await.err(),
+        Some(CallError::Closed(Closed::Busy))
+    );
+    assert_eq!(
+        SignalrTransport::connect(&options(&base, "nope"))
+            .await
+            .err(),
+        Some(Closed::Unauthorized)
+    );
 }

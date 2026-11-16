@@ -65,3 +65,10 @@ Tests use local TLS servers and public, disposable DER identities under
 `expired` exercises the documented validity exception. Tests use extra trust roots
 only in memory to cover successful system verification, without changing the host
 trust store. No new package or CA-file capability is needed.
+
+The valid fixtures have a 365-day lifetime, SAN entries for localhost and loopback,
+and the server-authentication EKU required by
+[Apple's certificate rules](https://support.apple.com/en-euro/103769). Before they
+expire, regenerate the fixture pairs with
+`pwsh crates/testkit/fixtures/tls/generate.ps1` and commit the resulting DER files.
+The generator reads the system clock and also creates an already-expired identity.

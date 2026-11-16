@@ -39,6 +39,8 @@ pub enum Closed {
     ServerTimeout,
     /// The network failed or the socket ended without a reason.
     Transport(String),
+    /// The certificate failed both system validation and the approved pin.
+    UntrustedHub(String),
     /// The CLI closed it.
     Local,
 }

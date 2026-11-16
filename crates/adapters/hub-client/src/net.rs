@@ -1,5 +1,5 @@
-//! The byte stream under a WebSocket: plain TCP or TLS (rustls with the operating
-//! system's verifier), directly or through an HTTP `CONNECT` tunnel. The WebSocket library
+//! The byte stream under a WebSocket: plain TCP or TLS (the system verifier with
+//! an origin-scoped certificate pin fallback), directly or through an HTTP `CONNECT` tunnel. The WebSocket library
 //! gets a ready stream, so HTTP and WebSocket share one TLS setup and one proxy rule.
 
 use std::io;
@@ -9,13 +9,13 @@ use std::task::{Context, Poll};
 
 use percent_encoding::percent_decode_str;
 use rustls::pki_types::ServerName;
-use rustls_platform_verifier::ConfigVerifierExt;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 use url::{Host, Url};
 
+use crate::TlsTrust;
 use crate::proxy::ProxyRule;
 
 /// An open connection to a server, ready for the WebSocket handshake.
@@ -48,9 +48,19 @@ pub fn user_agent() -> String {
 /// and the proxy the CLI's rule picks for that address (reqwest's own lookup is off, so
 /// HTTP and WebSocket never disagree).
 pub fn http_client(target: &Url, proxy: &ProxyRule) -> Result<reqwest::Client, String> {
+    http_client_with_trust(target, proxy, &TlsTrust::new(target.as_str(), None)?)
+}
+
+pub fn http_client_with_trust(
+    target: &Url,
+    proxy: &ProxyRule,
+    trust: &TlsTrust,
+) -> Result<reqwest::Client, String> {
     install_crypto_provider();
     let mut builder = reqwest::Client::builder()
         .user_agent(user_agent())
+        .tls_backend_preconfigured(trust.config(target)?)
+        .redirect(reqwest::redirect::Policy::none())
         .no_proxy();
     if let Some(via) = proxy.proxy_for(target)? {
         builder = builder.proxy(reqwest::Proxy::all(via.as_str()).map_err(|e| e.to_string())?);
@@ -58,9 +68,10 @@ pub fn http_client(target: &Url, proxy: &ProxyRule) -> Result<reqwest::Client, S
     builder.build().map_err(|error| error.to_string())
 }
 
-fn tls_config() -> io::Result<Arc<rustls::ClientConfig>> {
+fn tls_config(target: &Url, trust: &TlsTrust) -> io::Result<Arc<rustls::ClientConfig>> {
     install_crypto_provider();
-    let mut config = rustls::ClientConfig::with_platform_verifier()
+    let mut config = trust
+        .config(target)
         .map_err(|e| io::Error::other(format!("TLS setup failed: {e}")))?;
     config.alpn_protocols = vec![b"http/1.1".to_vec()];
     Ok(Arc::new(config))
@@ -81,7 +92,11 @@ pub fn host_name(url: &Url) -> io::Result<String> {
 
 /// Opens a stream to the host and port of `target` (`ws`, `wss`, `http` or `https`),
 /// through the proxy the rule picks for it.
-pub async fn open(target: &Url, proxy: &ProxyRule) -> io::Result<Stream> {
+pub(crate) async fn open_with_trust(
+    target: &Url,
+    proxy: &ProxyRule,
+    trust: &TlsTrust,
+) -> io::Result<Stream> {
     let tls = matches!(target.scheme(), "https" | "wss");
     let host = host_name(target)?;
     let port = target
@@ -100,8 +115,34 @@ pub async fn open(target: &Url, proxy: &ProxyRule) -> io::Result<Stream> {
     }
     let name =
         ServerName::try_from(host).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-    let stream = TlsConnector::from(tls_config()?).connect(name, tcp).await?;
+    let stream = TlsConnector::from(tls_config(target, trust)?)
+        .connect(name, tcp)
+        .await?;
     Ok(Stream::Tls(Box::new(stream)))
+}
+
+/// Reads only the TLS certificate, without sending an HTTP request or credentials.
+/// An untrusted certificate terminates the handshake; its fingerprint is still returned
+/// for the user to verify out of band. Actual requests always use the approved pin.
+pub async fn certificate_fingerprint(
+    target: &Url,
+    proxy: &ProxyRule,
+) -> Result<Option<String>, String> {
+    if target.scheme() != "https" {
+        return Ok(None);
+    }
+    let trust = TlsTrust::new(target.as_str(), None)?;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        open_with_trust(target, proxy, &trust),
+    )
+    .await
+    .map_err(|_| "certificate discovery timed out".to_owned())?;
+    match (result, trust.observed_fingerprint()) {
+        (_, Some(value)) => Ok(Some(value)),
+        (Err(error), None) => Err(error.to_string()),
+        (Ok(_), None) => Err("the server did not present a certificate".to_owned()),
+    }
 }
 
 /// The longest proxy answer read before giving up.

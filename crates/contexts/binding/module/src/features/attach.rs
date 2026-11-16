@@ -22,12 +22,13 @@ const OLD_BINDING_WAIT: Duration = Duration::from_secs(5);
 /// Asks once on the terminal whether to trust a new hub address.
 async fn ask_trust(
     hub: &str,
+    fingerprint: Option<&str>,
     io: &mut impl Reporter,
     prompt: &mut impl TrustPrompt,
     interrupts: &mut impl Interrupts,
 ) -> Result<bool, Failure> {
     io.clear_progress();
-    io.prompt(&trust_question(hub));
+    io.prompt(&trust_question(hub, fingerprint));
     tokio::select! {
         line = prompt.answer() => {
             io.prompt("\n");
@@ -66,24 +67,40 @@ pub async fn attach(
 ) -> Result<Outcome, Failure> {
     let code = code::open(request.code)?;
     io.info(&format!("Connecting to {}", code.hub()));
-    if !ports.store.trusts(code.hub()) {
+    let fingerprint = exchange.fingerprint(code.hub()).await?;
+    let trusted = match &fingerprint {
+        Some(value) => ports.store.fingerprint(code.hub()).as_ref() == Some(value),
+        None => ports.store.trusts(code.hub()),
+    };
+    if !trusted {
         let ask = may_ask(request.json, request.from_stdin, request.terminal);
         let trusted = if request.trust_hub {
+            if let Some(value) = &fingerprint {
+                io.info(&format!("Certificate SHA-256: {value}"));
+            }
             true
         } else if ask {
-            ask_trust(code.hub(), io, prompt, interrupts).await?
+            ask_trust(code.hub(), fingerprint.as_deref(), io, prompt, interrupts).await?
         } else {
-            return Err(untrusted(code.hub()));
+            let mut error = untrusted(code.hub());
+            if let Some(value) = &fingerprint {
+                error.message = format!("{}; Certificate SHA-256: {value}", error.message);
+            }
+            return Err(error);
         };
         if !trusted {
             return Err(declined(code.hub()));
         }
-        ports.store.trust(code.hub()).map_err(|error| {
+        let saved = match &fingerprint {
+            Some(value) => ports.store.trust_certificate(code.hub(), value),
+            None => ports.store.trust(code.hub()),
+        };
+        saved.map_err(|error| {
             Failure::new("failed", format!("cannot save the trusted hub: {error}"))
         })?;
     }
     let token = exchange
-        .exchange(code.hub(), code.secret(), ports.clock)
+        .exchange(code.hub(), code.secret(), fingerprint, ports.clock)
         .await?;
     // One binding at a time: once the new one stands, the old one and its token end
     // (attach spec §3.4). A refused code leaves the old binding as it was.

@@ -335,6 +335,7 @@ dependencies = [
  "gecko-hub-protocol",
  "percent-encoding",
  "reqwest",
+ "ring",
  "rustls",
  "rustls-platform-verifier",
  "serde",
@@ -372,8 +373,10 @@ dependencies = [
  "gecko-dev-hub",
  "gecko-kernel",
  "gecko-wire",
+ "rustls",
  "serde_json",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
 ]
 

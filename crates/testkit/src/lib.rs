@@ -21,6 +21,7 @@ mod fixtures;
 mod flow;
 mod hub;
 mod tab;
+mod tls;
 
 use std::time::Duration;
 
@@ -30,6 +31,7 @@ pub use fixtures::{capabilities, capabilities_with, fixture, sequences};
 pub use flow::{connect, disconnect};
 pub use hub::{Hub, Options, Timings, User};
 pub use tab::{Request, Tab};
+pub use tls::{TlsHub, test_certificate};
 
 /// The longest a test waits for one thing: a frame, an event, a line on stderr.
 pub const WAIT: Duration = Duration::from_secs(20);

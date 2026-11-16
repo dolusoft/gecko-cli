@@ -15,6 +15,8 @@ use gecko_testkit::{
 };
 use serde_json::{Value, json};
 
+mod tls_pinning;
+
 const GECKO: &str = env!("CARGO_BIN_EXE_gecko");
 
 /// The wait line without a terminal, for a card that is open ten minutes more.

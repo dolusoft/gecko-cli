@@ -17,6 +17,7 @@ use url::Url;
 
 use super::protocol::{self, Incoming, RecordReader};
 use crate::Closed;
+use crate::TlsTrust;
 use crate::net::{self, Stream};
 use crate::proxy::ProxyRule;
 
@@ -37,6 +38,8 @@ pub struct Options {
     pub user_agent: String,
     /// The proxy rule for negotiate and the WebSocket alike.
     pub proxy: ProxyRule,
+    /// Origin-scoped certificate approval, shared by HTTP negotiation and WebSocket.
+    pub tls_trust: Option<TlsTrust>,
     /// The framed handshake request; only tests change it.
     #[doc(hidden)]
     pub handshake: String,
@@ -56,6 +59,7 @@ impl Options {
             invoke_timeout: Duration::from_secs(10),
             user_agent: net::user_agent(),
             proxy: ProxyRule::from_env(),
+            tls_trust: None,
             handshake: protocol::HANDSHAKE_REQUEST.to_owned(),
         }
     }
@@ -251,13 +255,22 @@ async fn negotiate(options: &Options) -> Result<(Url, String), Closed> {
             .query_pairs_mut()
             .append_pair("negotiateVersion", "1");
         // One client per address: a redirect to another host gets its own proxy answer.
-        let response = net::http_client(&negotiate_url, &options.proxy)
+        let trust = options
+            .tls_trust
+            .clone()
+            .unwrap_or(TlsTrust::new(&options.url, None).map_err(Closed::Transport)?);
+        let response = net::http_client_with_trust(&negotiate_url, &options.proxy, &trust)
             .map_err(Closed::Transport)?
             .post(negotiate_url)
             .bearer_auth(&token)
             .send()
             .await
-            .map_err(transport)?;
+            .map_err(|e| {
+                trust
+                    .rejection()
+                    .map(Closed::UntrustedHub)
+                    .unwrap_or_else(|| transport(e))
+            })?;
         let status = response.status().as_u16();
         let body = response.text().await.map_err(transport)?;
         if !(200..300).contains(&status) {
@@ -306,9 +319,18 @@ async fn open_socket(url: &Url, token: &str, options: &Options) -> Result<Socket
         .set_scheme(if tls { "wss" } else { "ws" })
         .map_err(|_| Closed::Transport("cannot build the WebSocket address".to_owned()))?;
 
-    let stream = net::open(&ws_url, &options.proxy)
+    let trust = options
+        .tls_trust
+        .clone()
+        .unwrap_or(TlsTrust::new(&options.url, None).map_err(Closed::Transport)?);
+    let stream = net::open_with_trust(&ws_url, &options.proxy, &trust)
         .await
-        .map_err(transport)?;
+        .map_err(|e| {
+            trust
+                .rejection()
+                .map(Closed::UntrustedHub)
+                .unwrap_or_else(|| transport(e))
+        })?;
     let mut request = ws_url.as_str().into_client_request().map_err(transport)?;
     let headers = request.headers_mut();
     headers.insert(

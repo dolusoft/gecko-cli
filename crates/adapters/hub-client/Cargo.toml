@@ -13,6 +13,7 @@ futures-util.workspace = true
 gecko-hub-protocol.workspace = true
 percent-encoding.workspace = true
 reqwest.workspace = true
+ring = "0.17"
 rustls.workspace = true
 rustls-platform-verifier.workspace = true
 serde.workspace = true

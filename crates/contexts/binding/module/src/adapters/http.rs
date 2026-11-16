@@ -9,7 +9,7 @@ use gecko_binding_domain::token::{
     attach_refused, binding_ended, expires_at, needs_refresh, refresh_refused,
 };
 use gecko_hub_client::ProxyRule;
-use gecko_hub_client::http_client;
+use gecko_hub_client::{TlsTrust, certificate_fingerprint, http_client_with_trust};
 use gecko_kernel::{Clock, Failure};
 use serde_json::{Map, Value};
 use url::Url;
@@ -28,6 +28,7 @@ pub struct Auth {
     hub: String,
     base: Url,
     proxy: ProxyRule,
+    trust: TlsTrust,
 }
 
 struct Answer {
@@ -44,7 +45,35 @@ impl Auth {
             hub: hub.to_owned(),
             base,
             proxy,
+            trust: TlsTrust::new(hub, None).map_err(|e| Failure::new("failed", e))?,
         })
+    }
+
+    pub fn with_fingerprint(mut self, fingerprint: Option<String>) -> Result<Self, Failure> {
+        self.trust =
+            TlsTrust::new(&self.hub, fingerprint).map_err(|e| Failure::new("failed", e))?;
+        Ok(self)
+    }
+
+    /// Old HTTPS records must be approved again before any stored token is sent.
+    pub async fn require_certificate_approval(
+        &self,
+        store: &impl TokenStore,
+    ) -> Result<(), Failure> {
+        if self.base.scheme() == "https" && store.fingerprint(&self.hub).is_none() {
+            let fingerprint = certificate_fingerprint(&self.base, &self.proxy)
+                .await
+                .map_err(|e| Failure::new("unreachable", e))?
+                .unwrap_or_default();
+            return Err(Failure::new(
+                "untrusted-hub",
+                format!(
+                    "{} has no approved certificate; SHA-256: {fingerprint}. Run gecko attach again to approve it",
+                    self.hub
+                ),
+            ));
+        }
+        Ok(())
     }
 
     fn endpoint(&self, path: &str) -> Url {
@@ -61,14 +90,17 @@ impl Auth {
         let url = self.endpoint(path);
         let unreachable =
             |detail: String| Failure::new("unreachable", format!("cannot reach {url}: {detail}"));
-        let client = http_client(&url, &self.proxy).map_err(unreachable)?;
+        let client = http_client_with_trust(&url, &self.proxy, &self.trust).map_err(unreachable)?;
         let response = client
             .post(url.clone())
             .header("content-type", "application/x-www-form-urlencoded")
             .body(body)
             .send()
             .await
-            .map_err(|error| unreachable(error.to_string()))?;
+            .map_err(|error| match self.trust.rejection() {
+                Some(message) => Failure::new("untrusted-hub", message),
+                None => unreachable(error.to_string()),
+            })?;
         let status = response.status().as_u16();
         let text = response.text().await.unwrap_or_default();
         let body = match serde_json::from_str(&text) {
@@ -191,13 +223,22 @@ impl HttpExchange {
 }
 
 impl CodeExchange for HttpExchange {
+    async fn fingerprint(&self, hub: &str) -> Result<Option<String>, Failure> {
+        let url = Url::parse(hub).map_err(|e| Failure::new("failed", e.to_string()))?;
+        certificate_fingerprint(&url, &self.proxy)
+            .await
+            .map_err(|e| Failure::new("unreachable", format!("cannot read {hub} certificate: {e}")))
+    }
+
     async fn exchange(
         &self,
         hub: &str,
         secret: &str,
+        fingerprint: Option<String>,
         clock: &impl Clock,
     ) -> Result<StoredToken, Failure> {
         Auth::new(hub, self.proxy.clone())?
+            .with_fingerprint(fingerprint)?
             .attach(secret, clock)
             .await
     }

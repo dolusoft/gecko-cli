@@ -35,8 +35,13 @@ pub fn declined(hub: &str) -> Failure {
 }
 
 /// The trust question, answered on the same line.
-pub fn trust_question(hub: &str) -> String {
-    format!("{hub} has not been used from this computer. Connect to it? [y/N] ")
+pub fn trust_question(hub: &str, fingerprint: Option<&str>) -> String {
+    match fingerprint {
+        Some(value) => format!(
+            "{hub}\nCertificate SHA-256: {value}\nVerify this fingerprint with the hub administrator. Trust this certificate? [y/N] "
+        ),
+        None => format!("{hub} has not been used from this computer. Connect to it? [y/N] "),
+    }
 }
 
 /// Whether a typed answer is a yes.

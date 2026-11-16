@@ -8,6 +8,7 @@ use crate::{CallError, Closed};
 /// Why the connection could not be opened, in the CLI's terms.
 pub fn open_failure(closed: Closed) -> Failure {
     match closed {
+        Closed::UntrustedHub(message) => Failure::new("untrusted-hub", message),
         Closed::Unauthorized => Failure::new(
             "unauthorized",
             format!("the hub refused the token; {BIND_AGAIN}"),
@@ -27,7 +28,9 @@ pub fn open_failure(closed: Closed) -> Failure {
 /// Why an open connection ended during a call.
 pub fn lost_failure(closed: Closed) -> Failure {
     match closed {
-        Closed::Unauthorized | Closed::Busy | Closed::Revoked => open_failure(closed),
+        Closed::Unauthorized | Closed::Busy | Closed::Revoked | Closed::UntrustedHub(_) => {
+            open_failure(closed)
+        }
         other => Failure::new(
             "connection-lost",
             format!("the hub connection was lost: {}", describe(&other)),
@@ -37,7 +40,9 @@ pub fn lost_failure(closed: Closed) -> Failure {
 
 fn describe(closed: &Closed) -> String {
     match closed {
-        Closed::Handshake(text) | Closed::Transport(text) => text.clone(),
+        Closed::Handshake(text) | Closed::Transport(text) | Closed::UntrustedHub(text) => {
+            text.clone()
+        }
         Closed::Server(Some(text)) => format!("closed by the hub ({text})"),
         Closed::Server(None) => "closed by the hub".to_owned(),
         Closed::ServerTimeout => "the hub stopped answering".to_owned(),

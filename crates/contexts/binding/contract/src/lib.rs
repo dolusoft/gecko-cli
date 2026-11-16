@@ -47,6 +47,10 @@ pub trait TokenStore {
     fn trusts(&self, hub: &str) -> bool;
     /// Adds a hub origin to the trusted ones.
     fn trust(&self, hub: &str) -> io::Result<()>;
+    /// The approved leaf certificate; legacy address-only records return none.
+    fn fingerprint(&self, hub: &str) -> Option<String>;
+    /// Replaces the origin's old pin only after explicit approval.
+    fn trust_certificate(&self, hub: &str, fingerprint: &str) -> io::Result<()>;
 }
 
 /// The answer to the trust question. The question itself goes out through
@@ -70,11 +74,14 @@ pub trait HubOpener {
 /// Spends an attach code's secret at its hub (attach spec §10.2): the hub binds the tab
 /// that made the code and answers with the binding's token.
 pub trait CodeExchange {
+    /// Discovers the certificate without spending the code or sending credentials.
+    fn fingerprint(&self, hub: &str) -> impl Future<Output = Result<Option<String>, Failure>>;
     /// `hub` is the code's checked origin; `clock` dates the token's expiry.
     fn exchange(
         &self,
         hub: &str,
         secret: &str,
+        fingerprint: Option<String>,
         clock: &impl Clock,
     ) -> impl Future<Output = Result<StoredToken, Failure>>;
 }

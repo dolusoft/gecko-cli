@@ -8,7 +8,7 @@ use gecko_binding_contract::{StoredToken, TokenStore};
 use gecko_binding_module::Auth;
 use std::time::Duration;
 
-use gecko_hub_client::{DevOptions, DevTransport, Hub, ProxyRule};
+use gecko_hub_client::{DevOptions, DevTransport, Hub, ProxyRule, TlsTrust};
 use gecko_hub_client::{SignalrOptions, SignalrTransport};
 use gecko_hub_protocol::HubStatus;
 use gecko_hub_protocol::{Choice, choose};
@@ -61,6 +61,7 @@ async fn connect(
     host: &str,
     access_token: &str,
     proxy: &ProxyRule,
+    trust: &TlsTrust,
 ) -> Result<Hub, Closed> {
     match choice {
         Choice::Dev => Ok(Hub::Dev(
@@ -70,6 +71,7 @@ async fn connect(
             let mut options = SignalrOptions::new(signalr_url(hub), access_token);
             options.keep_alive = SIGNALR_KEEP_ALIVE;
             options.proxy = proxy.clone();
+            options.tls_trust = Some(trust.clone());
             Ok(Hub::Signalr(SignalrTransport::connect(&options).await?))
         }
     }
@@ -92,18 +94,44 @@ pub async fn open_with(
     ports: &Ports<impl Clock, impl IdSource>,
 ) -> Result<Session<Hub>, Failure> {
     let host = host_of(&token.hub)?;
-    let choice = choose(&host, ports.settings.transport.as_deref());
+    // The development transport is plain WS. An HTTPS origin must always keep TLS,
+    // including local installations; it uses the hosted hub's SignalR endpoint.
+    let choice = if token.hub.starts_with("https://") {
+        Choice::SignalR
+    } else {
+        choose(&host, ports.settings.transport.as_deref())
+    };
     let proxy = &ports.proxy;
-    let auth = Auth::new(&token.hub, ports.proxy.clone())?;
+    let fingerprint = store.fingerprint(&token.hub);
+    let trust =
+        TlsTrust::new(&token.hub, fingerprint.clone()).map_err(|e| Failure::new("failed", e))?;
+    let auth = Auth::new(&token.hub, ports.proxy.clone())?.with_fingerprint(fingerprint)?;
+    auth.require_certificate_approval(store).await?;
     let clock = &ports.clock;
     let token = auth.current_token(store, token, false, clock).await?;
-    let mut hub = match connect(choice, &token.hub, &host, &token.access_token, proxy).await {
+    let mut hub = match connect(
+        choice,
+        &token.hub,
+        &host,
+        &token.access_token,
+        proxy,
+        &trust,
+    )
+    .await
+    {
         Ok(hub) => hub,
         Err(Closed::Unauthorized) => {
             let token = auth.current_token(store, token, true, clock).await?;
-            connect(choice, &token.hub, &host, &token.access_token, proxy)
-                .await
-                .map_err(open_failure)?
+            connect(
+                choice,
+                &token.hub,
+                &host,
+                &token.access_token,
+                proxy,
+                &trust,
+            )
+            .await
+            .map_err(open_failure)?
         }
         Err(closed) => return Err(open_failure(closed)),
     };

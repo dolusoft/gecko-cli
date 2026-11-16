@@ -22,7 +22,23 @@ use serde::{Deserialize, Serialize};
 struct Settings {
     /// Hub origins the user agreed to connect to (attach spec §3.3).
     #[serde(default)]
-    trusted_hubs: Vec<String>,
+    trusted_hubs: Vec<TrustedHub>,
+}
+
+/// Legacy strings remain readable; HTTPS requires an explicit certificate approval.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum TrustedHub {
+    Address(String),
+    Certificate { hub: String, fingerprint: String },
+}
+
+impl TrustedHub {
+    fn hub(&self) -> &str {
+        match self {
+            Self::Address(hub) | Self::Certificate { hub, .. } => hub,
+        }
+    }
 }
 
 /// The held call lock; dropping it (or the process ending) lets the next call in.
@@ -170,16 +186,42 @@ impl TokenStore for Config {
 
     /// Whether the user trusted this hub origin before.
     fn trusts(&self, hub: &str) -> bool {
-        self.settings().trusted_hubs.iter().any(|h| h == hub)
+        self.settings().trusted_hubs.iter().any(|h| h.hub() == hub)
     }
 
     /// Adds a hub origin to the trusted list.
     fn trust(&self, hub: &str) -> io::Result<()> {
         let mut settings = self.settings();
-        if settings.trusted_hubs.iter().any(|h| h == hub) {
+        if settings.trusted_hubs.iter().any(|h| h.hub() == hub) {
             return Ok(());
         }
-        settings.trusted_hubs.push(hub.to_owned());
+        settings
+            .trusted_hubs
+            .push(TrustedHub::Address(hub.to_owned()));
+        self.ensure_dir()?;
+        fs::write(self.settings_path(), pretty(&settings)?)
+    }
+
+    fn fingerprint(&self, hub: &str) -> Option<String> {
+        self.settings()
+            .trusted_hubs
+            .into_iter()
+            .find_map(|record| match record {
+                TrustedHub::Certificate {
+                    hub: origin,
+                    fingerprint,
+                } if origin == hub => Some(fingerprint),
+                _ => None,
+            })
+    }
+
+    fn trust_certificate(&self, hub: &str, fingerprint: &str) -> io::Result<()> {
+        let mut settings = self.settings();
+        settings.trusted_hubs.retain(|h| h.hub() != hub);
+        settings.trusted_hubs.push(TrustedHub::Certificate {
+            hub: hub.to_owned(),
+            fingerprint: fingerprint.to_owned(),
+        });
         self.ensure_dir()?;
         fs::write(self.settings_path(), pretty(&settings)?)
     }

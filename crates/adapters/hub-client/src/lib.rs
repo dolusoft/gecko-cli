@@ -19,15 +19,17 @@ mod net;
 mod proxy;
 mod signalr;
 mod tcp;
+mod tls;
 
 pub use dev::{DevOptions, DevTransport};
 pub use hub::Hub;
-pub use net::http_client;
+pub use net::{certificate_fingerprint, http_client, http_client_with_trust};
 pub use proxy::ProxyRule;
 pub use signalr::{
     Connection as SignalrConnection, Event as SignalrEvent, InvokeError, Options as SignalrOptions,
     Transport as SignalrTransport, hub_result,
 };
+pub use tls::TlsTrust;
 
 pub use gecko_hub_protocol::HubConnection as Transport;
 pub use gecko_hub_protocol::{CallError, Closed, HubError, HubEvent};

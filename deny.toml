@@ -12,16 +12,16 @@ yanked = "deny"
 version = 2
 confidence-threshold = 0.9
 allow = [
-    "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "BSD-3-Clause",
-    # `ring`, `untrusted` and `rustls-webpki`: the TLS stack.
-    "ISC",
-    # `webpki-root-certs`: the Mozilla root certificates.
-    "CDLA-Permissive-2.0",
-    "MIT",
-    "Unicode-3.0",
-    "Zlib",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  # `ring`, `untrusted` and `rustls-webpki`: the TLS stack.
+  "ISC",
+  # `webpki-root-certs`: the Mozilla root certificates.
+  "CDLA-Permissive-2.0",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib"
 ]
 
 # Workspace crates are not published and carry no licence field.

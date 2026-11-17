@@ -24,7 +24,7 @@ Repo public (MIT). Spec ve geçiş planı Dolusoft'un iç belgeleridir, repoda y
 - `tests/signalr-hub/`: SignalR istemci testleri için en küçük ASP.NET Core hub'ı (CI `signalr` işi).
 - Yayın: `.github/workflows/release.yml`. Akış: `Cargo.toml`'daki `version` ve `CHANGELOG.md`'deki `## <sürüm>` bölümü aynı PR'da yazılır. Merge'den sonra iş akışı elle çalıştırılır; bu deneme yalnız derler. Sonra `v<sürüm>` tag'i atılır. Tag altı hedefi `--no-default-features` ile derler, Release'i `SHA256SUMS` ve CHANGELOG bölümüyle açar, sonra `install.sh` / `install.ps1` ile yayımlanan sürümü kurup sürümünü denetler. Kurulum betikleri repo kökündedir; README onları `main` dalından indirir.
 - Ortam değişkenleri ve test kancaları: [docs/test-hooks.md](docs/test-hooks.md).
-- Node yalnız Prettier içindir: `package.json`'daki tek bağımlılık `prettier`; Markdown, YAML ve JSON dosyaları onunla biçimlenir.
+- Node yalnız biçimleyici içindir: `package.json`'daki tek bağımlılık `oxfmt`; Markdown, YAML, JSON ve TOML dosyaları onunla biçimlenir (`.oxfmtrc.json`).
 
 Workspace üyeleri kök `Cargo.toml`'da açık bir listedir (`crates/*` deseni iç içe klasörlerde kırılır); paket adları klasör adından bağımsızdır.
 
@@ -102,4 +102,4 @@ cargo test --workspace --no-default-features
 
 `deny.toml` ya da bağımlılık değiştiyse `cargo deny check` da.
 
-Markdown, YAML ya da JSON değiştiyse `pnpm install && pnpm exec prettier --check .` da. İş ortasında yalnız değişen testler; PR öncesi bir kez tam paket.
+Markdown, YAML, JSON ya da TOML değiştiyse `pnpm install && pnpm exec oxfmt --check .` da. İş ortasında yalnız değişen testler; PR öncesi bir kez tam paket.

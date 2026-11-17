@@ -188,8 +188,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Markdown, YAML and JSON files are formatted with Prettier:
-`pnpm install && pnpm exec prettier --check .`
+Markdown, YAML, JSON and TOML files are formatted with oxfmt:
+`pnpm install && pnpm exec oxfmt --check .`
 
 Environment variables and test hooks: [docs/test-hooks.md](docs/test-hooks.md). Layout
 and rules: [AGENTS.md](AGENTS.md).

@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      # Prettier formats the Markdown, YAML and JSON files; it is the only Node tool.
+      # oxfmt formats the Markdown, YAML, JSON and TOML files; it is the only Node tool.
       # The pnpm version is the `packageManager` field of package.json.
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
@@ -29,7 +29,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec prettier --check .
+      - run: pnpm exec oxfmt --check .
 
   # Rust workspace (spec §7). Both feature sets are checked: the
   # default one (with the dev hub) and the release one (--no-default-features, K1).

@@ -23,7 +23,7 @@ jobs:
           persist-credentials: false
       # Prettier formats the Markdown, YAML and JSON files; it is the only Node tool.
       # The pnpm version is the `packageManager` field of package.json.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version: 24
